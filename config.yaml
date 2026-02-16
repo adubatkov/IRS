@@ -1,0 +1,77 @@
+data:
+  symbol: "NAS100"
+  optimized_path: "data/optimized/"
+  processed_path: "data/processed/"
+  timeframes: ["1m", "5m", "15m", "30m", "1H", "4H", "1D"]
+  instruments:
+    NAS100:
+      file: "NAS100_m1.parquet"
+      source: "Forex.com"
+    GER40:
+      file: "GER40_m1.parquet"
+      source: "Pepperstone"
+    UK100:
+      file: "UK100_m1.parquet"
+      source: "Forex.com"
+    XAUUSD:
+      file: "XAUUSD_m1.parquet"
+      source: "Oanda"
+
+concepts:
+  fractals:
+    swing_length:
+      1m: 3
+      5m: 5
+      15m: 5
+      30m: 5
+      1H: 7
+      4H: 10
+      1D: 10
+
+  structure:
+    break_mode: "close"
+    min_displacement: 0.001
+
+  fvg:
+    min_gap_pct: 0.0005
+    join_consecutive: true
+    mitigation_mode: "close"
+
+  orderblocks:
+    close_mitigation: true
+    max_age_candles: 500
+
+  liquidity:
+    range_percent: 0.001
+    min_touches: 2
+
+strategy:
+  confirmations:
+    min_count: 5
+    max_count: 8
+
+  entry:
+    mode: "conservative"
+    rto_wait: true
+
+  breakeven:
+    structural_bu: true
+    fta_bu: true
+    range_bu: true
+
+  risk:
+    position_size_sync: 1.0
+    position_size_desync: 0.5
+    max_risk_per_trade: 0.02
+    max_concurrent_positions: 3
+
+  targets:
+    primary_tf: ["4H", "1H"]
+    local_tf: ["30m", "15m"]
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2024-12-31"
+  initial_capital: 10000
+  commission_pct: 0.0006
+  slippage_pct: 0.0002

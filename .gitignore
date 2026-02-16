@@ -1,0 +1,49 @@
+# Data files (large, not versioned)
+data/optimized/*.parquet
+data/processed/
+data/raw/
+data/control/
+data/news/
+data/GER40*/
+data/NAS100*/
+data/UK100*/
+data/XAUUSD*/
+data/ger40*/
+data/xauusd*/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude orchestrator kit (reference only)
+claude-code-orchestrator-kit-main/
