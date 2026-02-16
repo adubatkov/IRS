@@ -59,7 +59,7 @@ def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     # Determine which columns to aggregate
     agg_dict = {k: v for k, v in OHLC_AGG.items() if k in df_indexed.columns}
 
-    resampled = df_indexed.resample(freq).agg(agg_dict).dropna(subset=["open"])
+    resampled = df_indexed.resample(freq).agg(agg_dict).dropna(subset=["open"])  # type: ignore[arg-type]
     resampled = resampled.reset_index()
 
     logger.info(

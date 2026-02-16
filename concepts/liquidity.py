@@ -45,18 +45,18 @@ def detect_equal_levels(
     """
     swings = detect_swings(df, swing_length=swing_length)
 
-    levels = []
+    levels: list[dict] = []
 
     # Process swing highs
     sh_mask = swings["swing_high"]
-    sh_prices = swings.loc[sh_mask, "swing_high_price"].values
+    sh_prices = np.asarray(swings.loc[sh_mask, "swing_high_price"])
     sh_indices = swings.index[sh_mask].tolist()
 
     _cluster_levels(sh_prices, sh_indices, 1, range_percent, min_touches, levels)
 
     # Process swing lows
     sl_mask = swings["swing_low"]
-    sl_prices = swings.loc[sl_mask, "swing_low_price"].values
+    sl_prices = np.asarray(swings.loc[sl_mask, "swing_low_price"])
     sl_indices = swings.index[sl_mask].tolist()
 
     _cluster_levels(sl_prices, sl_indices, -1, range_percent, min_touches, levels)

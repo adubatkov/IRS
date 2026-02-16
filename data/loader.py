@@ -136,7 +136,7 @@ def detect_gaps(df: pd.DataFrame, expected_freq: str = "1min") -> pd.DataFrame:
     gaps = []
     for idx in gap_indices:
         pos = df.index.get_loc(idx)
-        if pos > 0:
+        if isinstance(pos, int) and pos > 0:
             prev_idx = df.index[pos - 1]
             gap_start = df.loc[prev_idx, "time"]
             gap_end = df.loc[idx, "time"]

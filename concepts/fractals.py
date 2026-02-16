@@ -40,8 +40,8 @@ def detect_swings(
         - swing_high_price: float, price at swing high (NaN otherwise)
         - swing_low_price: float, price at swing low (NaN otherwise)
     """
-    highs = df["high"].values
-    lows = df["low"].values
+    highs = np.asarray(df["high"])
+    lows = np.asarray(df["low"])
     n = len(df)
     window = 2 * swing_length + 1
 
@@ -72,15 +72,15 @@ def detect_swings(
         & (low_series < low_series.shift(-1))
     )
 
-    swing_high = swing_high_mask.fillna(False).values
-    swing_low = swing_low_mask.fillna(False).values
+    swing_high = np.asarray(swing_high_mask.fillna(False))
+    swing_low = np.asarray(swing_low_mask.fillna(False))
 
     # Resolve conflicts: a candle cannot be both swing high and swing low.
     # Keep the one with greater relative extremity.
     overlap = swing_high & swing_low
     if overlap.any():
-        high_range = highs - rolling_max.values
-        low_range = rolling_min.values - lows
+        high_range = highs - np.asarray(rolling_max)
+        low_range = np.asarray(rolling_min) - lows
         # Where high is more extreme, keep swing_high; otherwise keep swing_low
         prefer_high = np.abs(high_range) >= np.abs(low_range)
         swing_low[overlap & prefer_high] = False
@@ -89,8 +89,8 @@ def detect_swings(
     result = pd.DataFrame({
         "swing_high": swing_high,
         "swing_low": swing_low,
-        "swing_high_price": np.where(swing_high, highs, np.nan),
-        "swing_low_price": np.where(swing_low, lows, np.nan),
+        "swing_high_price": np.where(swing_high, highs, np.nan).astype(float),
+        "swing_low_price": np.where(swing_low, lows, np.nan).astype(float),
     }, index=df.index)
 
     return result
