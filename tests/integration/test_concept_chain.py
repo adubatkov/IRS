@@ -18,6 +18,7 @@ from concepts.fractals import detect_swings, get_swing_points
 from concepts.liquidity import detect_equal_levels, detect_session_levels
 from concepts.orderblocks import detect_orderblocks
 from concepts.structure import detect_bos_choch, detect_cisd
+from concepts.registry import build_poi_registry
 from concepts.zones import (
     classify_price_zone,
     consequent_encroachment,
@@ -291,3 +292,49 @@ class TestFullChain:
         print(f"  Breakers: {len(breakers)}")
         print(f"  Equal levels: {len(eq_levels)}")
         print(f"  Session levels: {len(session_levels)}")
+
+
+class TestPOIRegistry:
+    """Test POI registry on real data."""
+
+    def test_registry_on_15m(self, nas100_15m):
+        """Build POI registry from all detected concepts."""
+        events = detect_bos_choch(nas100_15m, swing_length=5)
+        fvgs = detect_fvg(nas100_15m, min_gap_pct=0.0003)
+        obs = detect_orderblocks(nas100_15m, events)
+        breakers = detect_breakers(obs)
+        eq_levels = detect_equal_levels(nas100_15m, swing_length=5)
+        session_levels = detect_session_levels(nas100_15m, level_type="daily")
+
+        pois = build_poi_registry(
+            fvgs, obs, breakers, eq_levels, session_levels,
+            timeframe="15m",
+        )
+        assert len(pois) > 0, "Expected POIs on 15m data"
+        assert (pois["score"] > 0).all(), "All POIs must have positive score"
+        assert set(pois["direction"].unique()).issubset({1, -1})
+        assert (pois["top"] > pois["bottom"]).all()
+
+        print("\n--- POI Registry (15m) ---")
+        print(f"  Total POIs: {len(pois)}")
+        print(f"  Bullish: {len(pois[pois['direction'] == 1])}")
+        print(f"  Bearish: {len(pois[pois['direction'] == -1])}")
+        print(f"  Score range: {pois['score'].min():.1f} - {pois['score'].max():.1f}")
+
+    def test_poi_has_confluence(self, nas100_15m):
+        """At least some POIs should have multiple components."""
+        events = detect_bos_choch(nas100_15m, swing_length=5)
+        fvgs = detect_fvg(nas100_15m, min_gap_pct=0.0003)
+        obs = detect_orderblocks(nas100_15m, events)
+        breakers = detect_breakers(obs)
+        eq_levels = detect_equal_levels(nas100_15m, swing_length=5)
+        session_levels = detect_session_levels(nas100_15m, level_type="daily")
+
+        pois = build_poi_registry(
+            fvgs, obs, breakers, eq_levels, session_levels,
+            timeframe="15m",
+        )
+        multi = pois[pois["component_count"] >= 2]
+        assert len(multi) > 0, "Expected some confluence POIs on real data"
+        print(f"  Confluence POIs (2+): {len(multi)}")
+        print(f"  Max components: {pois['component_count'].max()}")
