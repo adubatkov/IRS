@@ -73,3 +73,47 @@ class TestUpdateOBStatus:
         }])
         updated = update_ob_status(obs, candle_high=110, candle_low=99, candle_close=100)
         assert updated.iloc[0]["status"] == OBStatus.BROKEN
+
+
+class TestOrderBlocksSlicedData:
+    """Test OB detection on DataFrames with non-zero-based index."""
+
+    def test_detects_ob_on_sliced_dataframe(self):
+        n = 50
+        opens = np.full(n, 105.0)
+        closes = np.full(n, 106.0)
+        highs = np.full(n, 107.0)
+        lows = np.full(n, 104.0)
+        # Make candle at position 14 bearish
+        opens[14] = 106.0
+        closes[14] = 103.0
+
+        df = pd.DataFrame({"open": opens, "high": highs, "low": lows, "close": closes})
+        # Slice to create non-zero-based index (offset by 500)
+        full = pd.concat([pd.DataFrame(np.zeros((500, 4)), columns=df.columns), df],
+                         ignore_index=True)
+        df_sliced = full.iloc[500:550]  # Indices 500-549
+
+        events = pd.DataFrame([{
+            "type": "BOS", "direction": 1,
+            "broken_level": 110.0, "broken_index": 530, "swing_index": 515,
+        }])
+
+        obs = detect_orderblocks(df_sliced, events)
+        assert len(obs) >= 1, "Should detect OB on sliced DataFrame"
+        assert obs.iloc[0]["direction"] == 1
+
+    def test_swing_index_not_in_df_skipped(self):
+        n = 50
+        df = pd.DataFrame({
+            "open": np.full(n, 105.0),
+            "high": np.full(n, 107.0),
+            "low": np.full(n, 104.0),
+            "close": np.full(n, 106.0),
+        })
+        events = pd.DataFrame([{
+            "type": "BOS", "direction": 1,
+            "broken_level": 110.0, "broken_index": 30, "swing_index": 999,
+        }])
+        obs = detect_orderblocks(df, events)
+        assert len(obs) == 0

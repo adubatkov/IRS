@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from concepts.fvg import FVGStatus, detect_fvg, update_fvg_status
+from concepts.fvg import FVGStatus, detect_fvg, track_fvg_lifecycle, update_fvg_status
 
 
 def make_bullish_fvg():
@@ -82,8 +82,16 @@ class TestDetectFVG:
     def test_returns_correct_columns(self):
         df = make_bullish_fvg()
         fvgs = detect_fvg(df, min_gap_pct=0)
-        expected = {"direction", "top", "bottom", "midpoint", "creation_index", "status"}
+        expected = {"direction", "top", "bottom", "midpoint",
+                    "start_index", "creation_index", "status"}
         assert expected <= set(fvgs.columns)
+
+    def test_start_index_is_first_candle(self):
+        df = make_bullish_fvg()
+        fvgs = detect_fvg(df, min_gap_pct=0)
+        fvg = fvgs.iloc[0]
+        assert fvg["start_index"] == 0  # First candle of pattern
+        assert fvg["creation_index"] == 2  # Third candle
 
     def test_empty_on_tiny_data(self):
         df = pd.DataFrame({"high": [100], "low": [99], "close": [99.5], "open": [99.5]})
@@ -139,6 +147,89 @@ class TestUpdateFVGStatus:
         }])
         updated = update_fvg_status(fvgs, candle_high=110, candle_low=103, candle_close=105, mitigation_mode="ce")
         assert updated.iloc[0]["status"] == FVGStatus.MITIGATED
+
+
+class TestTrackFVGLifecycle:
+    """Tests for bar-by-bar FVG lifecycle tracking."""
+
+    def _make_lifecycle_data(self):
+        """Bullish FVG at bars 0-2, then subsequent price action."""
+        # Bars 0-2: create bullish FVG (top=108, bottom=100)
+        # Bar 3: price stays above → FRESH
+        # Bar 4: wick touches zone (low=106) → TESTED
+        # Bar 5: deeper into zone past midpoint (low=103) → PARTIALLY_FILLED
+        # Bar 6: closes below bottom → INVERTED
+        return pd.DataFrame({
+            "high":  [100, 105, 112, 115, 113, 112, 110],
+            "low":   [98,  102, 108, 110, 106, 103, 95],
+            "close": [99,  104, 111, 114, 112, 108, 97],
+            "open":  [99,  101, 107, 111, 110, 110, 108],
+        })
+
+    def test_basic_lifecycle_to_inversion(self):
+        df = self._make_lifecycle_data()
+        fvgs = detect_fvg(df.iloc[:3], min_gap_pct=0)
+        assert len(fvgs) == 1
+
+        results = track_fvg_lifecycle(df, fvgs, mitigation_mode="close", max_age_bars=50)
+        assert len(results) == 1
+        r = results[0]
+        assert r["status"] == FVGStatus.INVERTED
+        assert r["inversion_index"] == 6
+        assert r["end_index"] == 6
+        assert r["fill_level"] == 95  # Deepest penetration
+
+    def test_partial_fill_no_inversion(self):
+        """FVG partially filled but not inverted → stays PARTIALLY_FILLED."""
+        df = pd.DataFrame({
+            "high":  [100, 105, 112, 115, 113, 112, 111, 110],
+            "low":   [98,  102, 108, 110, 106, 103, 105, 106],
+            "close": [99,  104, 111, 114, 112, 108, 109, 109],
+            "open":  [99,  101, 107, 111, 110, 110, 107, 108],
+        })
+        fvgs = detect_fvg(df.iloc[:3], min_gap_pct=0)
+        results = track_fvg_lifecycle(df, fvgs, mitigation_mode="close", max_age_bars=50)
+        assert len(results) == 1
+        r = results[0]
+        assert r["status"] == FVGStatus.PARTIALLY_FILLED
+        assert r["inversion_index"] is None
+        assert r["fill_level"] == 103  # Deepest was bar 5
+
+    def test_max_age_expiry(self):
+        """FVG expires after max_age_bars if untouched."""
+        df = pd.DataFrame({
+            "high":  [100, 105, 112] + [115] * 10,
+            "low":   [98,  102, 108] + [110] * 10,
+            "close": [99,  104, 111] + [114] * 10,
+            "open":  [99,  101, 107] + [111] * 10,
+        })
+        fvgs = detect_fvg(df.iloc[:3], min_gap_pct=0)
+        results = track_fvg_lifecycle(df, fvgs, mitigation_mode="close", max_age_bars=5)
+        assert len(results) == 1
+        r = results[0]
+        assert r["status"] == FVGStatus.FRESH  # Never touched
+        assert r["fill_level"] is None
+        # end_index should be at max_age offset from creation
+        assert r["end_index"] == 7  # creation(2) + max_age(5) = 7
+
+    def test_bearish_fvg_lifecycle(self):
+        """Bearish FVG gets inverted when close goes above top."""
+        df = pd.DataFrame({
+            "high":  [100, 95, 88, 85, 90, 95, 102],
+            "low":   [98,  90, 85, 82, 84, 88, 96],
+            "close": [99,  91, 86, 83, 89, 94, 101],
+            "open":  [99,  96, 90, 86, 85, 89, 95],
+        })
+        fvgs = detect_fvg(df.iloc[:3], min_gap_pct=0)
+        bearish = fvgs[fvgs["direction"] == -1]
+        assert len(bearish) >= 1
+
+        results = track_fvg_lifecycle(df, bearish.reset_index(drop=True),
+                                      mitigation_mode="close", max_age_bars=50)
+        assert len(results) == 1
+        r = results[0]
+        assert r["status"] == FVGStatus.INVERTED
+        assert r["inversion_index"] == 6
 
 
 class TestFVGRealData:

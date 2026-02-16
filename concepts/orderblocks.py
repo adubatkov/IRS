@@ -61,9 +61,12 @@ def detect_orderblocks(
         swing_idx = event["swing_index"]
         broken_idx = event["broken_index"]
 
-        # Search backward from the swing for the last opposing candle
-        search_start = swing_idx
-        if search_start < 0 or search_start >= len(df):
+        # Convert DataFrame index to positional index for array access
+        try:
+            search_start = df.index.get_loc(swing_idx)
+        except KeyError:
+            continue
+        if not isinstance(search_start, int) or search_start < 0 or search_start >= len(df):
             continue
 
         if direction == 1:

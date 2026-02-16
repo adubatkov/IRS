@@ -164,6 +164,13 @@ class TestOrderBlocks:
         assert all(c in obs.columns for c in ["direction", "top", "bottom"])
         assert (obs["top"] > obs["bottom"]).all(), "OB top must be > bottom"
 
+    def test_ob_on_sliced_data(self, nas100_15m):
+        """Regression: OB detection must work on sliced DataFrames."""
+        df_sliced = nas100_15m.iloc[500:1000].copy()
+        events = detect_bos_choch(df_sliced, swing_length=5)
+        obs = detect_orderblocks(df_sliced, events)
+        assert len(obs) > 0, "Should detect OBs on sliced data (non-zero index)"
+
     def test_ob_directions(self, nas100_15m):
         events = detect_bos_choch(nas100_15m, swing_length=5)
         obs = detect_orderblocks(nas100_15m, events)

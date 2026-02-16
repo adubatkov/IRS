@@ -40,6 +40,7 @@ def detect_fvg(
         - top: upper boundary of gap
         - bottom: lower boundary of gap
         - midpoint: (top + bottom) / 2
+        - start_index: index of the first candle in the pattern
         - creation_index: index of the third candle
         - status: FVGStatus.FRESH
     """
@@ -62,6 +63,7 @@ def detect_fvg(
                     "top": gap_top,
                     "bottom": gap_bottom,
                     "midpoint": (gap_top + gap_bottom) / 2,
+                    "start_index": df.index[i - 2],
                     "creation_index": df.index[i],
                     "status": FVGStatus.FRESH,
                 })
@@ -77,13 +79,15 @@ def detect_fvg(
                     "top": gap_top,
                     "bottom": gap_bottom,
                     "midpoint": (gap_top + gap_bottom) / 2,
+                    "start_index": df.index[i - 2],
                     "creation_index": df.index[i],
                     "status": FVGStatus.FRESH,
                 })
 
     if not fvgs:
         return pd.DataFrame(
-            columns=["direction", "top", "bottom", "midpoint", "creation_index", "status"]
+            columns=["direction", "top", "bottom", "midpoint",
+                     "start_index", "creation_index", "status"]
         )
 
     result = pd.DataFrame(fvgs)
@@ -108,10 +112,11 @@ def _join_consecutive_fvgs(fvgs: pd.DataFrame) -> pd.DataFrame:
         if (row["direction"] == current["direction"]
                 and _zones_overlap(current["bottom"], current["top"],
                                    row["bottom"], row["top"])):
-            # Merge: extend the zone
+            # Merge: extend the zone, keep earliest start, latest creation
             current["top"] = max(current["top"], row["top"])
             current["bottom"] = min(current["bottom"], row["bottom"])
             current["midpoint"] = (current["top"] + current["bottom"]) / 2
+            current["start_index"] = min(current["start_index"], row["start_index"])
             current["creation_index"] = row["creation_index"]  # Use latest
         else:
             merged.append(current)
@@ -228,3 +233,128 @@ def update_fvg_status(
                     result.loc[idx, "status"] = FVGStatus.TESTED
 
     return result
+
+
+def track_fvg_lifecycle(
+    df: pd.DataFrame,
+    fvgs: pd.DataFrame,
+    mitigation_mode: str = "close",
+    max_age_bars: int = 192,
+) -> list[dict]:
+    """Track the full lifecycle of each FVG through subsequent price action.
+
+    For each FVG, iterates bar-by-bar from creation forward, tracking:
+    - How deeply price penetrates the zone (fill_level)
+    - Status transitions (FRESH -> TESTED -> PARTIALLY_FILLED -> FULLY_FILLED/INVERTED)
+    - When the FVG ends (mitigation, inversion, or max age expiry)
+
+    Args:
+        df: OHLC DataFrame (same one used to detect FVGs).
+        fvgs: DataFrame from detect_fvg().
+        mitigation_mode: "close" (candle close determines inversion) or "wick".
+        max_age_bars: Maximum bars before FVG expires.
+
+    Returns:
+        List of dicts, one per FVG, with:
+        - fvg_idx: row index in the fvgs DataFrame
+        - start_index: first candle of the FVG pattern
+        - end_index: bar where FVG ended (mitigation/inversion/expiry)
+        - status: final status at end
+        - fill_level: deepest price penetration into the zone
+        - inversion_index: bar index where IFVG was created (or None)
+        - direction, top, bottom, midpoint: copied from original FVG
+    """
+    if len(fvgs) == 0 or len(df) == 0:
+        return []
+
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+
+    results = []
+
+    for fvg_row_idx in range(len(fvgs)):
+        fvg = fvgs.iloc[fvg_row_idx]
+        direction = fvg["direction"]
+        top = fvg["top"]
+        bottom = fvg["bottom"]
+        midpoint = fvg["midpoint"]
+        creation_idx = fvg["creation_index"]
+        start_idx = fvg.get("start_index", creation_idx)
+
+        # Find positional start for iteration (bar after creation)
+        try:
+            creation_pos = df.index.get_loc(creation_idx)
+        except KeyError:
+            continue
+        if not isinstance(creation_pos, int):
+            continue
+
+        status = FVGStatus.FRESH
+        fill_level = None  # Deepest penetration
+        end_pos = min(creation_pos + max_age_bars, len(df) - 1)
+        end_index = df.index[end_pos]
+        inversion_index = None
+
+        for pos in range(creation_pos + 1, min(creation_pos + max_age_bars + 1, len(df))):
+            c_high = highs[pos]
+            c_low = lows[pos]
+            c_close = closes[pos]
+
+            if direction == 1:  # Bullish FVG — support zone below
+                if c_low <= top:  # Price entered the zone
+                    if fill_level is None or c_low < fill_level:
+                        fill_level = c_low
+
+                    if mitigation_mode == "close" and c_close < bottom:
+                        status = FVGStatus.INVERTED
+                        end_index = df.index[pos]
+                        inversion_index = df.index[pos]
+                        break
+                    elif mitigation_mode == "wick" and c_low < bottom:
+                        status = FVGStatus.FULLY_FILLED
+                        end_index = df.index[pos]
+                        break
+
+                    if c_low <= midpoint:
+                        if status in (FVGStatus.FRESH, FVGStatus.TESTED):
+                            status = FVGStatus.PARTIALLY_FILLED
+                    elif status == FVGStatus.FRESH:
+                        status = FVGStatus.TESTED
+
+            else:  # Bearish FVG — resistance zone above
+                if c_high >= bottom:  # Price entered the zone
+                    if fill_level is None or c_high > fill_level:
+                        fill_level = c_high
+
+                    if mitigation_mode == "close" and c_close > top:
+                        status = FVGStatus.INVERTED
+                        end_index = df.index[pos]
+                        inversion_index = df.index[pos]
+                        break
+                    elif mitigation_mode == "wick" and c_high > top:
+                        status = FVGStatus.FULLY_FILLED
+                        end_index = df.index[pos]
+                        break
+
+                    if c_high >= midpoint:
+                        if status in (FVGStatus.FRESH, FVGStatus.TESTED):
+                            status = FVGStatus.PARTIALLY_FILLED
+                    elif status == FVGStatus.FRESH:
+                        status = FVGStatus.TESTED
+
+        results.append({
+            "fvg_idx": fvg_row_idx,
+            "direction": direction,
+            "top": top,
+            "bottom": bottom,
+            "midpoint": midpoint,
+            "start_index": start_idx,
+            "creation_index": creation_idx,
+            "end_index": end_index,
+            "status": status,
+            "fill_level": fill_level,
+            "inversion_index": inversion_index,
+        })
+
+    return results
