@@ -13,6 +13,9 @@ import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
+# Project root directory (parent of data/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 REQUIRED_COLUMNS = {"time", "open", "high", "low", "close"}
 OPTIONAL_COLUMNS = {"tick_volume", "volume"}
 DROP_COLUMNS = {"Shapes"}  # Extra columns from TradingView export
@@ -66,6 +69,10 @@ def load_instrument(
     Tries optimized parquet first, falls back to raw CSV directory.
     """
     optimized_path = Path(optimized_path)
+
+    # If relative path, resolve from project root (not CWD)
+    if not optimized_path.is_absolute():
+        optimized_path = PROJECT_ROOT / optimized_path
 
     # Try parquet first
     if parquet_filename:
