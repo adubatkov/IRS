@@ -28,12 +28,6 @@ class FVGConfig:
 
 
 @dataclass
-class OrderBlocksConfig:
-    close_mitigation: bool = True
-    max_age_candles: int = 500
-
-
-@dataclass
 class LiquidityConfig:
     range_percent: float = 0.001
     min_touches: int = 2
@@ -44,7 +38,6 @@ class ConceptsConfig:
     fractals: FractalsConfig = field(default_factory=FractalsConfig)
     structure: StructureConfig = field(default_factory=StructureConfig)
     fvg: FVGConfig = field(default_factory=FVGConfig)
-    orderblocks: OrderBlocksConfig = field(default_factory=OrderBlocksConfig)
     liquidity: LiquidityConfig = field(default_factory=LiquidityConfig)
 
 
@@ -82,12 +75,19 @@ class TargetsConfig:
 
 
 @dataclass
+class FTAConfig:
+    close_threshold_pct: float = 0.3
+    invalidation_mode: str = "close"
+
+
+@dataclass
 class StrategyConfig:
     confirmations: ConfirmationsConfig = field(default_factory=ConfirmationsConfig)
     entry: EntryConfig = field(default_factory=EntryConfig)
     breakeven: BreakevenConfig = field(default_factory=BreakevenConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     targets: TargetsConfig = field(default_factory=TargetsConfig)
+    fta: FTAConfig = field(default_factory=FTAConfig)
 
 
 @dataclass
