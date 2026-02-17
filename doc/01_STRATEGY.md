@@ -62,9 +62,7 @@ These also count as valid confirmations:
 
 - **FVG test with wick reaction** -- price touches FVG and reacts with a wick (even without full BOS)
 - **CVB (Consequent Encroachment) test** -- test of the 50% level of an FVG
-- **Order Block test** -- price tests an identified order block
-- **Breaker test** -- price tests a breaker block (failed order block acting as new S/R)
-- **Additional BOS** -- repeated structural confirmations
+- **Additional cBOS** -- repeated continuation structural confirmations
 
 ### 3.3 Counting Rules
 
@@ -91,7 +89,7 @@ CONDITIONS:
   3. Price exits the POI structurally (BOS confirms direction)
   4. Structure is confirmed 1-2 additional times
   5. Stop-loss is placed where price interacted with liquidity
-     (behind FVG, order block, CVB, breaker, or inversion zone)
+     (behind FVG, CVB, or inversion zone)
 
 RESULT: High RR entry with structurally protected stop-loss.
 ```
@@ -106,7 +104,7 @@ SCENARIO:
 
 ACTION: DO NOT ENTER on the 5th confirm.
 
-REASON: Price will likely give an RTO (Return to Origin) to test the FVG/breaker.
+REASON: Price will likely give an RTO (Return to Origin) to test the FVG/inversion zone.
 
 WAIT FOR: 6th confirmation after the RTO pullback. This is a safer entry.
 ```
@@ -120,7 +118,7 @@ SCENARIO:
 
 ACTION:
   Option A: Enter with immediate structural breakeven (short BU)
-  Option B: Wait for local RTO to test FVG/breaker/inversion, then enter
+  Option B: Wait for local RTO to test FVG/inversion, then enter
 
 PREFERENCE: Option B is safer. It provides:
   - Tighter stop-loss
@@ -338,7 +336,6 @@ IF price has 5 confirmations BUT exits POI very aggressively:
   -> Do NOT chase
   -> Wait for RTO to test:
     * FVG zone
-    * Breaker block
     * Inversion zone
     * Any significant structure level
   -> After RTO: collect additional confirmations
@@ -419,7 +416,7 @@ HTF = Bearish, LTF = Bullish (Desync):
 ```
 PRIORITY 1 (Primary Target):
   POI on 4H/1H from which reversal is expected.
-  This can be: FVG, Order Block, Liquidity zone.
+  This can be: FVG, Liquidity zone.
 
 PRIORITY 2 (Secondary Target):
   Liquidity sweep level (equal highs/lows, swing on the path).
@@ -457,7 +454,7 @@ AFTER target is reached:
 | Aspect | Rule |
 |--------|------|
 | **Minimum confirmations** | 5 before entry |
-| **Stop-loss placement** | Behind liquidity interaction point (FVG, OB, CVB, breaker) |
+| **Stop-loss placement** | Behind liquidity interaction point (FVG, CVB, inversion zone) |
 | **Breakeven** | Structural (first BOS), FTA-based, or range boundary |
 | **Add-ons** | From local 15m/30m POIs with structural BU |
 | **Position sizing (sync)** | Full size when HTF and LTF agree |

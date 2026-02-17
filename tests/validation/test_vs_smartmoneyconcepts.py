@@ -1,6 +1,6 @@
 """Comparison test: our SMC concepts vs smartmoneyconcepts library.
 
-Target: 90%+ match on shared concepts (fractals, FVG, BOS/CHoCH, OB).
+Target: 90%+ match on shared concepts (fractals, FVG, structure).
 Uses same parameters to ensure fair comparison.
 """
 
@@ -15,8 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from concepts.fractals import detect_swings
 from concepts.fvg import detect_fvg
-from concepts.orderblocks import detect_orderblocks
-from concepts.structure import detect_bos_choch
+from concepts.structure import detect_structure
 from data.loader import load_instrument
 
 try:
@@ -231,14 +230,14 @@ class TestFVGComparison:
         )
 
 
-class TestBOSCHOCHComparison:
-    """Compare our BOS/CHoCH detection with library."""
+class TestStructureComparison:
+    """Compare our structure (BOS/cBOS) detection with library."""
 
     def test_structure_count_similar(self):
 
         ours_df, lib_df = _prepare_data(10000)
 
-        our_events = detect_bos_choch(ours_df, swing_length=SWING_LENGTH, close_break=True)
+        our_events = detect_structure(ours_df, swing_length=SWING_LENGTH, close_break=True)
 
         lib_swings = smc_lib.swing_highs_lows(lib_df, swing_length=SWING_LENGTH)
         lib_events = smc_lib.bos_choch(lib_df, lib_swings, close_break=True)
@@ -259,7 +258,7 @@ class TestBOSCHOCHComparison:
 
         ours_df, lib_df = _prepare_data(10000)
 
-        our_events = detect_bos_choch(ours_df, swing_length=SWING_LENGTH)
+        our_events = detect_structure(ours_df, swing_length=SWING_LENGTH)
 
         lib_swings = smc_lib.swing_highs_lows(lib_df, swing_length=SWING_LENGTH)
         lib_events = smc_lib.bos_choch(lib_df, lib_swings, close_break=True)
@@ -278,59 +277,6 @@ class TestBOSCHOCHComparison:
             assert diff < 0.4, (
                 f"Structure direction diff {diff:.1%} > 40%"
             )
-
-
-class TestOBComparison:
-    """Compare our Order Block detection with library."""
-
-    def test_ob_count_reported(self):
-        """Report OB counts for comparison.
-
-        Note: The SMC library filters OBs aggressively using mitigation tracking
-        and percentage thresholds, keeping only the most recent unmitigated OBs.
-        Our implementation creates one OB per structure event (before filtering),
-        which is by design - filtering happens later in the POI registry.
-        We only verify both detect OBs in both directions.
-        """
-
-        ours_df, lib_df = _prepare_data(10000)
-
-        # Our OBs
-        our_events = detect_bos_choch(ours_df, swing_length=SWING_LENGTH)
-        our_obs = detect_orderblocks(ours_df, our_events)
-
-        # Library OBs
-        lib_swings = smc_lib.swing_highs_lows(lib_df, swing_length=SWING_LENGTH)
-        lib_obs = smc_lib.ob(lib_df, lib_swings, close_mitigation=False)
-        lib_ob_count = lib_obs["OB"].notna().sum()
-
-        our_count = len(our_obs)
-        print(f"\nOB Count - Ours: {our_count}, Lib: {lib_ob_count}")
-        print("  (Library aggressively filters; our OBs are pre-filter by design)")
-
-        # Both should detect at least some OBs
-        assert our_count > 0, "Our implementation should detect OBs"
-        assert lib_ob_count > 0, "Library should detect OBs"
-
-    def test_ob_directions_balanced(self):
-        """Both should detect OBs in both directions."""
-
-        ours_df, lib_df = _prepare_data(10000)
-
-        our_events = detect_bos_choch(ours_df, swing_length=SWING_LENGTH)
-        our_obs = detect_orderblocks(ours_df, our_events)
-
-        lib_swings = smc_lib.swing_highs_lows(lib_df, swing_length=SWING_LENGTH)
-        lib_obs = smc_lib.ob(lib_df, lib_swings, close_mitigation=False)
-        lib_valid = lib_obs[lib_obs["OB"].notna()]
-
-        if len(our_obs) > 0:
-            our_dirs = set(our_obs["direction"].unique())
-            assert len(our_dirs) >= 1, "Our OBs should detect at least 1 direction"
-
-        if len(lib_valid) > 0:
-            lib_dirs = set(lib_valid["OB"].unique())
-            assert len(lib_dirs) >= 1, "Lib OBs should detect at least 1 direction"
 
 
 class TestSummary:
@@ -363,19 +309,12 @@ class TestSummary:
         print(f"  Ours: {len(our_fvgs)}, Lib: {lib_fvg_count}")
 
         # Structure
-        our_events = detect_bos_choch(ours_df, swing_length=SWING_LENGTH)
+        our_events = detect_structure(ours_df, swing_length=SWING_LENGTH)
         lib_events = smc_lib.bos_choch(lib_df, lib_swings, close_break=True)
         lib_bos = lib_events["BOS"].notna().sum()
         lib_choch = lib_events["CHOCH"].notna().sum()
         print("\nStructure:")
         print(f"  Ours: {len(our_events)} total")
         print(f"  Lib:  {lib_bos} BOS + {lib_choch} CHoCH = {lib_bos + lib_choch}")
-
-        # OBs
-        our_obs = detect_orderblocks(ours_df, our_events)
-        lib_obs = smc_lib.ob(lib_df, lib_swings, close_mitigation=False)
-        lib_ob_count = lib_obs["OB"].notna().sum()
-        print("\nOrder Blocks:")
-        print(f"  Ours: {len(our_obs)}, Lib: {lib_ob_count}")
 
         print("\n" + "=" * 60)

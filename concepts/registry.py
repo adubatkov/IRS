@@ -1,10 +1,10 @@
 """POI (Point of Interest) Registry — aggregate all concepts into composite POIs.
 
 A POI is a composite price zone where the trader expects a reaction.
-It aggregates overlapping FVGs, Order Blocks, Breaker Blocks, IFVGs,
-liquidity levels, and session levels into a single scored zone.
+It aggregates overlapping FVGs, IFVGs, liquidity levels, and session levels
+into a single scored zone.
 
-See doc/02_SMC_CONCEPTS.md section 10 for scoring specification.
+See doc/02_SMC_CONCEPTS.md for scoring specification.
 """
 
 from enum import Enum
@@ -22,8 +22,6 @@ class POIStatus(str, Enum):
 _BASE_SCORES: dict[str, float] = {
     "fvg_htf": 3.0,
     "fvg_ltf": 1.0,
-    "ob": 2.0,
-    "breaker": 2.0,
     "ifvg": 2.0,
     "liquidity": 2.0,
     "session": 1.0,
@@ -43,8 +41,6 @@ _HTF_TIMEFRAMES = {"4H", "1H", "4h", "1h", "240", "60"}
 
 def build_poi_registry(
     fvgs: pd.DataFrame,
-    obs: pd.DataFrame,
-    breakers: pd.DataFrame,
     liquidity: pd.DataFrame,
     session_levels: pd.DataFrame,
     fvg_lifecycle: list[dict] | None = None,
@@ -58,8 +54,6 @@ def build_poi_registry(
 
     Args:
         fvgs: DataFrame from detect_fvg().
-        obs: DataFrame from detect_orderblocks().
-        breakers: DataFrame from detect_breakers().
         liquidity: DataFrame from detect_equal_levels().
         session_levels: DataFrame from detect_session_levels().
         fvg_lifecycle: Optional list from track_fvg_lifecycle().
@@ -75,7 +69,7 @@ def build_poi_registry(
         - status: POIStatus
     """
     zones = _normalize_all(
-        fvgs, obs, breakers, liquidity, session_levels,
+        fvgs, liquidity, session_levels,
         fvg_lifecycle, timeframe,
     )
 
@@ -154,8 +148,6 @@ def _empty_poi_df() -> pd.DataFrame:
 
 def _normalize_all(
     fvgs: pd.DataFrame,
-    obs: pd.DataFrame,
-    breakers: pd.DataFrame,
     liquidity: pd.DataFrame,
     session_levels: pd.DataFrame,
     fvg_lifecycle: list[dict] | None,
@@ -202,36 +194,6 @@ def _normalize_all(
                 "top": float(row["top"]),
                 "bottom": float(row["bottom"]),
                 "source_type": source_type,
-                "source_idx": i,
-                "status": status,
-            })
-
-    # Order Blocks
-    if len(obs) > 0:
-        for i, row in obs.iterrows():
-            status = str(row.get("status", "ACTIVE"))
-            if status in ("MITIGATED", "BROKEN"):
-                continue
-            zones.append({
-                "direction": int(row["direction"]),
-                "top": float(row["top"]),
-                "bottom": float(row["bottom"]),
-                "source_type": "ob",
-                "source_idx": i,
-                "status": status,
-            })
-
-    # Breaker Blocks
-    if len(breakers) > 0:
-        for i, row in breakers.iterrows():
-            status = str(row.get("status", "ACTIVE"))
-            if status == "MITIGATED":
-                continue
-            zones.append({
-                "direction": int(row["direction"]),
-                "top": float(row["top"]),
-                "bottom": float(row["bottom"]),
-                "source_type": "breaker",
                 "source_idx": i,
                 "status": status,
             })

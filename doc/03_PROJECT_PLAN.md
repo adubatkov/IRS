@@ -34,10 +34,8 @@ irs-backtest/
 ├── concepts/                          # SMC concept detection (pure, stateless functions)
 │   ├── __init__.py
 │   ├── fractals.py                    # Swing highs/lows detection
-│   ├── structure.py                   # BOS, CHoCH, CISD detection
+│   ├── structure.py                   # BOS, cBOS, CISD detection
 │   ├── fvg.py                         # FVG detection, mitigation, inversion
-│   ├── orderblocks.py                 # Order Block detection and lifecycle
-│   ├── breakers.py                    # Breaker Block detection (from failed OBs)
 │   ├── liquidity.py                   # Equal highs/lows, sweep detection
 │   ├── zones.py                       # Premium/Discount, CE/CVB calculation
 │   └── registry.py                    # POI registry -- aggregates all concepts into POIs
@@ -74,19 +72,18 @@ irs-backtest/
 ├── visualization/                     # Chart visualization tools
 │   ├── __init__.py
 │   ├── chart.py                       # Core charting (candlestick + overlays)
-│   ├── overlays.py                    # SMC overlays (FVG boxes, OB zones, swing markers)
+│   ├── overlays.py                    # SMC overlays (FVG boxes, swing markers, structure lines)
 │   ├── trade_markers.py               # Entry/exit markers, BU levels, targets
 │   └── interactive.py                 # Interactive exploration tools
 │
 ├── notebooks/                         # Jupyter notebooks for exploration and validation
 │   ├── 01_data_exploration.ipynb      # Load data, view candles, check quality
 │   ├── 02_fractals_viewer.ipynb       # Visualize swing highs/lows detection
-│   ├── 03_structure_viewer.ipynb      # Visualize BOS/CHoCH/CISD
+│   ├── 03_structure_viewer.ipynb      # Visualize BOS/cBOS/CISD
 │   ├── 04_fvg_viewer.ipynb            # Visualize FVG detection and lifecycle
-│   ├── 05_orderblock_viewer.ipynb     # Visualize OB/BB detection
-│   ├── 06_poi_viewer.ipynb            # Visualize composite POIs
-│   ├── 07_strategy_viewer.ipynb       # Visualize confirmation counting and entries
-│   ├── 08_backtest_results.ipynb      # Interactive backtest results analysis
+│   ├── 05_poi_viewer.ipynb            # Visualize composite POIs
+│   ├── 06_strategy_viewer.ipynb       # Visualize confirmation counting and entries
+│   ├── 07_backtest_results.ipynb      # Interactive backtest results analysis
 │   └── utils.py                       # Shared notebook utilities
 │
 ├── tests/                             # Test suite
@@ -94,14 +91,12 @@ irs-backtest/
 │   │   ├── test_fractals.py
 │   │   ├── test_structure.py
 │   │   ├── test_fvg.py
-│   │   ├── test_orderblocks.py
-│   │   ├── test_breakers.py
 │   │   ├── test_liquidity.py
 │   │   ├── test_confirmations.py
 │   │   └── test_portfolio.py
 │   ├── integration/                   # Integration tests (real data scenarios)
 │   │   ├── test_mtf_pipeline.py       # Multi-TF data flow
-│   │   ├── test_concept_chain.py      # Swings -> BOS -> OB -> BB chain
+│   │   ├── test_concept_chain.py      # Swings -> Structure -> FVG chain
 │   │   └── test_full_trade.py         # Complete trade lifecycle
 │   ├── validation/                    # Validation against known setups
 │   │   ├── test_known_setups.py       # Manually annotated setups from real data
@@ -237,9 +232,9 @@ Cache key = hash of (source file path, file modification time, timeframe).
 - [ ] `tests/unit/test_fractals.py`
 - Validation: visually verify swing detection on real charts
 
-#### Step 2.2: Market Structure (BOS/CHoCH)
-- [ ] `concepts/structure.py` -- BOS, CHoCH
-- [ ] Update `visualization/overlays.py` -- BOS/CHoCH horizontal lines with labels
+#### Step 2.2: Market Structure (BOS/cBOS)
+- [ ] `concepts/structure.py` -- BOS, cBOS
+- [ ] Update `visualization/overlays.py` -- BOS/cBOS horizontal lines with labels
 - [ ] `notebooks/03_structure_viewer.ipynb`
 - [ ] `tests/unit/test_structure.py`
 - Validation: verify structure matches manual chart analysis
@@ -256,29 +251,18 @@ Cache key = hash of (source file path, file modification time, timeframe).
 - [ ] `tests/unit/test_fvg.py`
 - Validation: compare with `smartmoneyconcepts` library results
 
-#### Step 2.5: Order Blocks
-- [ ] `concepts/orderblocks.py` -- OB detection linked to BOS/CHoCH
-- [ ] Update visualization -- OB zone boxes
-- [ ] `notebooks/05_orderblock_viewer.ipynb`
-- [ ] `tests/unit/test_orderblocks.py`
-
-#### Step 2.6: Breaker Blocks
-- [ ] `concepts/breakers.py` -- detect failed OBs becoming BBs
-- [ ] Update visualization -- BB zone boxes (different color from OBs)
-- [ ] Tests
-
-#### Step 2.7: Liquidity
+#### Step 2.5: Liquidity
 - [ ] `concepts/liquidity.py` -- equal highs/lows, sweeps
 - [ ] Update visualization -- liquidity level lines, sweep markers
 - [ ] Tests
 
-#### Step 2.8: Zones (Premium/Discount, CE/CVB)
+#### Step 2.6: Zones (Premium/Discount, CE/CVB)
 - [ ] `concepts/zones.py`
 - [ ] Tests
 
-#### Step 2.9: POI Registry
+#### Step 2.7: POI Registry
 - [ ] `concepts/registry.py` -- aggregate all concepts into composite POIs
-- [ ] `notebooks/06_poi_viewer.ipynb` -- show all POIs on chart with strength scores
+- [ ] `notebooks/05_poi_viewer.ipynb` -- show all POIs on chart with strength scores
 - [ ] Integration test: full concept chain
 
 **Detailed plan:** `docs/phases/PHASE_2_CONCEPTS.md`
@@ -300,7 +284,7 @@ Cache key = hash of (source file path, file modification time, timeframe).
 - [ ] `strategy/fta_handler.py` -- FTA detection and handling
 - [ ] `strategy/addons.py` -- add-on position logic
 - [ ] `strategy/risk.py` -- position sizing and stop placement
-- [ ] `notebooks/07_strategy_viewer.ipynb` -- visualize confirmations and entries on chart
+- [ ] `notebooks/06_strategy_viewer.ipynb` -- visualize confirmations and entries on chart
 
 **Detailed plan:** `docs/phases/PHASE_3_STRATEGY.md`
 
@@ -324,11 +308,10 @@ for each 1m candle:
     1. Update all timeframe candles (check if new 15m/30m/1H/4H/1D candle closed)
     2. For each timeframe that closed a new candle:
        a. Update fractals
-       b. Update structure (BOS/CHoCH/CISD)
+       b. Update structure (BOS/cBOS/CISD)
        c. Update FVG lifecycle (new FVGs, mitigations, inversions)
-       d. Update OB lifecycle (new OBs, mitigations, breaks -> BBs)
-       e. Update liquidity (new levels, sweeps)
-       f. Update POI registry
+       d. Update liquidity (new levels, sweeps)
+       e. Update POI registry
     3. Run strategy logic:
        a. Check context/bias
        b. Check sync/desync
@@ -352,7 +335,7 @@ for each 1m candle:
 - [ ] `analysis/metrics.py` -- winrate, avg RR, max drawdown, Sharpe, Sortino, profit factor
 - [ ] `analysis/report.py` -- generate HTML/markdown summary report
 - [ ] `analysis/equity_curve.py` -- equity curve, underwater chart, monthly returns
-- [ ] `notebooks/08_backtest_results.ipynb` -- interactive results exploration
+- [ ] `notebooks/07_backtest_results.ipynb` -- interactive results exploration
 - [ ] Parameter sensitivity analysis
 - [ ] Walk-forward optimization (in-sample / out-of-sample split)
 
@@ -443,7 +426,7 @@ def test_no_fvg_when_candles_overlap():
 
 Test that concepts chain correctly:
 ```
-Fractals -> Structure -> OB -> BB (if OB fails)
+Fractals -> Structure -> FVG chain
 Fractals -> Liquidity -> Sweep detection
 FVG -> IFVG (when inverted)
 All concepts -> POI registry
@@ -485,7 +468,7 @@ expected algorithmic outputs. This is the most important test category.
 ### 5.4 Comparison Tests
 
 Run `smartmoneyconcepts` library alongside our implementation on the same data.
-Compare: fractal detection, FVG detection, BOS/CHoCH detection, OB detection.
+Compare: fractal detection, FVG detection, BOS/cBOS detection.
 Document and investigate any differences.
 
 ```python
@@ -519,7 +502,7 @@ APPROACH:
   1. Pre-compute all static concepts (fractals, FVG, BOS) for all timeframes
      BEFORE running the backtest loop. This is a batch operation.
   2. During the backtest loop, only update LIFECYCLE states
-     (FVG mitigation, OB mitigation, liquidity sweeps) which requires
+     (FVG mitigation, liquidity sweeps) which requires
      comparing current price to pre-computed zones -- this IS vectorizable.
   3. Strategy logic (confirmations, entries) runs sequentially by necessity
      but operates on pre-computed data, so it's fast.
@@ -530,7 +513,7 @@ APPROACH:
 ```
 1m data for 3 years with 6 columns ≈ 70 MB in memory (float64).
 Resampled data adds ~20% overhead.
-Concept annotations (FVG, OB, etc.) add ~30% overhead.
+Concept annotations (FVG, structure, etc.) add ~30% overhead.
 
 TOTAL: ~120 MB -- fits comfortably in memory.
 
@@ -563,7 +546,7 @@ def create_chart(ohlc, title="", overlays=None):
 
     Args:
         ohlc: DataFrame with OHLC data
-        overlays: List of overlay objects (FVG boxes, OB zones, swing markers, etc.)
+        overlays: List of overlay objects (FVG boxes, swing markers, structure lines, etc.)
 
     Returns:
         plotly.graph_objects.Figure
@@ -576,15 +559,12 @@ def create_chart(ohlc, title="", overlays=None):
 |---------|--------|-------|
 | Swing High | Triangle down marker | Red |
 | Swing Low | Triangle up marker | Green |
-| BOS | Horizontal dashed line + label | Blue (bullish), Orange (bearish) |
-| CHoCH | Horizontal solid line + label | Purple |
+| cBOS | Horizontal dashed line + label | Blue (bullish), Orange (bearish) |
+| BOS | Horizontal solid line + label | Purple |
 | CISD | Horizontal dotted line + label | Cyan |
 | Bullish FVG | Semi-transparent green box | rgba(0, 255, 0, 0.15) |
 | Bearish FVG | Semi-transparent red box | rgba(255, 0, 0, 0.15) |
 | IFVG | Hatched/striped box | Different shade |
-| Bullish OB | Blue-green box | rgba(0, 128, 128, 0.2) |
-| Bearish OB | Red-orange box | rgba(255, 128, 0, 0.2) |
-| Breaker Block | Dashed-border box | Inverted OB color |
 | Liquidity Level | Horizontal dotted line | Yellow |
 | Sweep | X marker at sweep point | Yellow |
 | Entry | Arrow marker | Green (long), Red (short) |
@@ -627,7 +607,7 @@ def explore(swing_length, date):
     fig.show()
 ```
 
-### 7.4 Trade Review Tool (notebook 08)
+### 7.4 Trade Review Tool (notebook 07)
 
 Interactive tool to review each backtest trade:
 
@@ -694,10 +674,6 @@ concepts:
     min_gap_pct: 0.0005         # Minimum FVG size as % of price
     join_consecutive: true
     mitigation_mode: "close"    # "wick", "close", "ce", "full"
-
-  orderblocks:
-    close_mitigation: true
-    max_age_candles: 500        # OBs older than this are expired
 
   liquidity:
     range_percent: 0.001        # How close levels must be for "equal"

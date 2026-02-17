@@ -12,12 +12,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from concepts.breakers import detect_breakers
 from concepts.fvg import detect_fvg
 from concepts.fractals import detect_swings, get_swing_points
 from concepts.liquidity import detect_equal_levels, detect_session_levels
-from concepts.orderblocks import detect_orderblocks
-from concepts.structure import detect_bos_choch, detect_cisd
+from concepts.structure import detect_structure, detect_cisd
 from concepts.registry import build_poi_registry
 from concepts.zones import (
     classify_price_zone,
@@ -117,19 +115,19 @@ class TestFractals:
 
 
 class TestStructure:
-    def test_bos_choch_on_15m(self, nas100_15m):
-        events = detect_bos_choch(nas100_15m, swing_length=5, close_break=True)
+    def test_structure_on_15m(self, nas100_15m):
+        events = detect_structure(nas100_15m, swing_length=5, close_break=True)
         assert len(events) > 0, "Expected at least 1 structure event"
         assert "type" in events.columns
         assert "direction" in events.columns
         assert set(events["direction"].unique()).issubset({1, -1})
 
-    def test_bos_and_choch_exist(self, nas100_15m):
-        events = detect_bos_choch(nas100_15m, swing_length=5)
+    def test_bos_and_cbos_exist(self, nas100_15m):
+        events = detect_structure(nas100_15m, swing_length=5)
         types = set(str(t) for t in events["type"])
-        # On real data, we should see at least BOS
-        assert "BOS" in types or "StructureType.BOS" in types, (
-            f"No BOS found in types: {types}"
+        # On real data, we should see at least CBOS
+        assert "CBOS" in types or "StructureType.CBOS" in types, (
+            f"No CBOS found in types: {types}"
         )
 
     def test_cisd_on_1m(self, nas100_1m):
@@ -155,45 +153,6 @@ class TestFVG:
         for _, fvg in fvgs.iterrows():
             expected = (fvg["top"] + fvg["bottom"]) / 2
             assert abs(fvg["midpoint"] - expected) < 1e-6
-
-
-class TestOrderBlocks:
-    def test_detect_on_15m(self, nas100_15m):
-        events = detect_bos_choch(nas100_15m, swing_length=5)
-        obs = detect_orderblocks(nas100_15m, events)
-        assert len(obs) > 0, "Expected OBs on 15m data"
-        assert all(c in obs.columns for c in ["direction", "top", "bottom"])
-        assert (obs["top"] > obs["bottom"]).all(), "OB top must be > bottom"
-
-    def test_ob_on_sliced_data(self, nas100_15m):
-        """Regression: OB detection must work on sliced DataFrames."""
-        df_sliced = nas100_15m.iloc[500:1000].copy()
-        events = detect_bos_choch(df_sliced, swing_length=5)
-        obs = detect_orderblocks(df_sliced, events)
-        assert len(obs) > 0, "Should detect OBs on sliced data (non-zero index)"
-
-    def test_ob_directions(self, nas100_15m):
-        events = detect_bos_choch(nas100_15m, swing_length=5)
-        obs = detect_orderblocks(nas100_15m, events)
-        assert set(obs["direction"].unique()).issubset({1, -1})
-
-
-class TestBreakers:
-    def test_breaker_from_broken_ob(self, nas100_15m):
-        events = detect_bos_choch(nas100_15m, swing_length=5)
-        obs = detect_orderblocks(nas100_15m, events)
-
-        # Simulate price action to break some OBs
-        broken_obs = obs.copy()
-        if len(broken_obs) > 0:
-            # Force some to BROKEN status for testing
-            from concepts.orderblocks import OBStatus
-            broken_obs.loc[broken_obs.index[0], "status"] = OBStatus.BROKEN
-            breakers = detect_breakers(broken_obs)
-            assert len(breakers) >= 1
-            # Direction should be inverted
-            orig_dir = obs.iloc[0]["direction"]
-            assert breakers.iloc[0]["direction"] == -orig_dir
 
 
 class TestLiquidity:
@@ -242,14 +201,14 @@ class TestFullChain:
     """Run the entire concept chain end-to-end."""
 
     def test_full_pipeline(self, nas100_15m):
-        """Complete pipeline: fractals -> structure -> FVG -> OB -> breakers -> liquidity -> zones."""
+        """Complete pipeline: fractals -> structure -> FVG -> liquidity -> zones."""
         # Step 1: Fractals
         swings = detect_swings(nas100_15m, swing_length=5)
         points = get_swing_points(nas100_15m, swings)
         assert len(points) > 0
 
         # Step 2: Structure
-        events = detect_bos_choch(nas100_15m, swing_length=5)
+        events = detect_structure(nas100_15m, swing_length=5)
         assert len(events) > 0
 
         # Step 3: CISD
@@ -260,21 +219,13 @@ class TestFullChain:
         fvgs = detect_fvg(nas100_15m, min_gap_pct=0.0005)
         assert isinstance(fvgs, pd.DataFrame)
 
-        # Step 5: Order Blocks
-        obs = detect_orderblocks(nas100_15m, events)
-        assert isinstance(obs, pd.DataFrame)
-
-        # Step 6: Breakers
-        breakers = detect_breakers(obs)
-        assert isinstance(breakers, pd.DataFrame)
-
-        # Step 7: Liquidity
+        # Step 5: Liquidity
         eq_levels = detect_equal_levels(nas100_15m, swing_length=5)
         session_levels = detect_session_levels(nas100_15m, level_type="daily")
         assert isinstance(eq_levels, pd.DataFrame)
         assert isinstance(session_levels, pd.DataFrame)
 
-        # Step 8: Zones
+        # Step 6: Zones
         if len(points) >= 2:
             sh = points[points["direction"] == 1]["level"].max()
             sl = points[points["direction"] == -1]["level"].min()
@@ -288,8 +239,6 @@ class TestFullChain:
         print(f"  Structure events: {len(events)}")
         print(f"  CISD events: {len(cisd)}")
         print(f"  FVGs: {len(fvgs)}")
-        print(f"  Order Blocks: {len(obs)}")
-        print(f"  Breakers: {len(breakers)}")
         print(f"  Equal levels: {len(eq_levels)}")
         print(f"  Session levels: {len(session_levels)}")
 
@@ -299,15 +248,12 @@ class TestPOIRegistry:
 
     def test_registry_on_15m(self, nas100_15m):
         """Build POI registry from all detected concepts."""
-        events = detect_bos_choch(nas100_15m, swing_length=5)
         fvgs = detect_fvg(nas100_15m, min_gap_pct=0.0003)
-        obs = detect_orderblocks(nas100_15m, events)
-        breakers = detect_breakers(obs)
         eq_levels = detect_equal_levels(nas100_15m, swing_length=5)
         session_levels = detect_session_levels(nas100_15m, level_type="daily")
 
         pois = build_poi_registry(
-            fvgs, obs, breakers, eq_levels, session_levels,
+            fvgs, eq_levels, session_levels,
             timeframe="15m",
         )
         assert len(pois) > 0, "Expected POIs on 15m data"
@@ -323,15 +269,12 @@ class TestPOIRegistry:
 
     def test_poi_has_confluence(self, nas100_15m):
         """At least some POIs should have multiple components."""
-        events = detect_bos_choch(nas100_15m, swing_length=5)
         fvgs = detect_fvg(nas100_15m, min_gap_pct=0.0003)
-        obs = detect_orderblocks(nas100_15m, events)
-        breakers = detect_breakers(obs)
         eq_levels = detect_equal_levels(nas100_15m, swing_length=5)
         session_levels = detect_session_levels(nas100_15m, level_type="daily")
 
         pois = build_poi_registry(
-            fvgs, obs, breakers, eq_levels, session_levels,
+            fvgs, eq_levels, session_levels,
             timeframe="15m",
         )
         multi = pois[pois["component_count"] >= 2]

@@ -218,7 +218,7 @@ def add_zone(
     name: str = "",
     row: int = 1,
 ) -> go.Figure:
-    """Add a rectangular zone (for FVG, OB, etc.)."""
+    """Add a rectangular zone (for FVG, etc.)."""
     fig.add_shape(
         type="rect",
         x0=x0, x1=x1, y0=y0, y1=y1,

@@ -1,4 +1,4 @@
-"""Tests for market structure (BOS/CHoCH) and CISD detection."""
+"""Tests for market structure (BOS/cBOS) and CISD detection."""
 
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from concepts.structure import StructureType, detect_bos_choch, detect_cisd
+from concepts.structure import StructureType, detect_structure, detect_cisd
 
 
 def make_uptrend(n_waves: int = 4, points_per_wave: int = 20) -> pd.DataFrame:
@@ -92,38 +92,38 @@ def make_reversal(points_per_leg: int = 30) -> pd.DataFrame:
     })
 
 
-class TestDetectBosChoch:
-    def test_uptrend_produces_bos(self):
+class TestDetectStructure:
+    def test_uptrend_produces_cbos(self):
         df = make_uptrend()
-        events = detect_bos_choch(df, swing_length=3, close_break=True)
+        events = detect_structure(df, swing_length=3, close_break=True)
         if len(events) > 0:
-            bos_events = events[events["type"] == StructureType.BOS]
-            assert len(bos_events) > 0, "Uptrend should produce BOS events"
+            cbos_events = events[events["type"] == StructureType.CBOS]
+            assert len(cbos_events) > 0, "Uptrend should produce cBOS events"
 
     def test_returns_correct_columns(self):
         df = make_uptrend()
-        events = detect_bos_choch(df, swing_length=3)
+        events = detect_structure(df, swing_length=3)
         expected_cols = {"type", "direction", "broken_level", "broken_index", "swing_index"}
         assert set(events.columns) >= expected_cols
 
-    def test_reversal_produces_choch(self):
+    def test_reversal_produces_bos(self):
         df = make_reversal()
-        events = detect_bos_choch(df, swing_length=3, close_break=True)
+        events = detect_structure(df, swing_length=3, close_break=True)
         if len(events) > 0:
-            choch_events = events[events["type"] == StructureType.CHOCH]
-            # Should detect at least one CHoCH at the reversal point
-            assert len(choch_events) >= 0  # May not detect with small data
+            bos_events = events[events["type"] == StructureType.BOS]
+            # Should detect at least one BOS at the reversal point
+            assert len(bos_events) >= 0  # May not detect with small data
 
     def test_directions_are_valid(self):
         df = make_uptrend()
-        events = detect_bos_choch(df, swing_length=3)
+        events = detect_structure(df, swing_length=3)
         if len(events) > 0:
             assert set(events["direction"].unique()) <= {1, -1}
 
     def test_wick_mode_more_events(self):
         df = make_uptrend(n_waves=6, points_per_wave=30)
-        events_close = detect_bos_choch(df, swing_length=3, close_break=True)
-        events_wick = detect_bos_choch(df, swing_length=3, close_break=False)
+        events_close = detect_structure(df, swing_length=3, close_break=True)
+        events_wick = detect_structure(df, swing_length=3, close_break=False)
         # Wick mode should produce >= events than close mode
         assert len(events_wick) >= len(events_close)
 
@@ -132,7 +132,7 @@ class TestDetectBosChoch:
             "open": [100, 101], "high": [102, 103],
             "low": [99, 100], "close": [101, 102],
         })
-        events = detect_bos_choch(df, swing_length=3)
+        events = detect_structure(df, swing_length=3)
         assert len(events) == 0
 
 
@@ -168,13 +168,13 @@ class TestDetectCISD:
 
 
 class TestStructureRealData:
-    def test_bos_choch_on_nas100(self):
+    def test_structure_on_nas100(self):
         path = Path("data/optimized/NAS100_m1.parquet")
         if not path.exists():
             pytest.skip("NAS100 parquet not available")
         from data.loader import load_parquet
         df = load_parquet(path).head(5000).reset_index(drop=True)
-        events = detect_bos_choch(df, swing_length=5, close_break=True)
+        events = detect_structure(df, swing_length=5, close_break=True)
         assert len(events) > 0, "Should detect structure events in 5000 NAS100 candles"
-        # Should have both BOS and possibly CHoCH
-        assert any(t == StructureType.BOS for t in events["type"])
+        # Should have both cBOS and possibly BOS
+        assert any(t == StructureType.CBOS for t in events["type"])

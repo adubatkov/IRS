@@ -8,12 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from concepts.breakers import detect_breakers
 from concepts.fvg import detect_fvg
 from concepts.fractals import detect_swings, get_swing_points
 from concepts.liquidity import detect_equal_levels, detect_session_levels
-from concepts.orderblocks import detect_orderblocks
-from concepts.structure import detect_bos_choch, detect_cisd
+from concepts.structure import detect_structure, detect_cisd
 from concepts.zones import premium_discount_zones, classify_price_zone, zone_percentage
 from data.loader import load_instrument
 
@@ -53,10 +51,10 @@ class TestBenchmarks:
 
     def test_structure_performance(self, data_100k):
         start = time.perf_counter()
-        events = detect_bos_choch(data_100k, swing_length=5)
+        events = detect_structure(data_100k, swing_length=5)
         elapsed = time.perf_counter() - start
-        print(f"\nBOS/CHoCH (100K rows): {elapsed:.3f}s, {len(events)} events")
-        assert elapsed < MAX_TIME_SECONDS, f"BOS/CHoCH took {elapsed:.3f}s > {MAX_TIME_SECONDS}s"
+        print(f"\nStructure (100K rows): {elapsed:.3f}s, {len(events)} events")
+        assert elapsed < MAX_TIME_SECONDS, f"Structure took {elapsed:.3f}s > {MAX_TIME_SECONDS}s"
 
     def test_cisd_performance(self, data_100k):
         start = time.perf_counter()
@@ -71,14 +69,6 @@ class TestBenchmarks:
         elapsed = time.perf_counter() - start
         print(f"\nFVG (100K rows): {elapsed:.3f}s, {len(fvgs)} FVGs")
         assert elapsed < MAX_TIME_SECONDS, f"FVG took {elapsed:.3f}s > {MAX_TIME_SECONDS}s"
-
-    def test_orderblocks_performance(self, data_100k):
-        events = detect_bos_choch(data_100k, swing_length=5)
-        start = time.perf_counter()
-        obs = detect_orderblocks(data_100k, events)
-        elapsed = time.perf_counter() - start
-        print(f"\nOrder Blocks (100K rows): {elapsed:.3f}s, {len(obs)} OBs")
-        assert elapsed < MAX_TIME_SECONDS, f"Order Blocks took {elapsed:.3f}s > {MAX_TIME_SECONDS}s"
 
     def test_liquidity_equal_levels_performance(self, data_100k):
         start = time.perf_counter()
@@ -113,18 +103,16 @@ class TestBenchmarks:
 
         swings = detect_swings(data_100k, swing_length=5)
         points = get_swing_points(data_100k, swings)
-        events = detect_bos_choch(data_100k, swing_length=5)
+        events = detect_structure(data_100k, swing_length=5)
         cisd = detect_cisd(data_100k)
         fvgs = detect_fvg(data_100k, min_gap_pct=0.0005)
-        obs = detect_orderblocks(data_100k, events)
-        breakers = detect_breakers(obs)
         eq_levels = detect_equal_levels(data_100k, swing_length=5)
         session_levels = detect_session_levels(data_100k, level_type="daily")
 
         elapsed = time.perf_counter() - start
         print(f"\n--- Full Chain (100K rows): {elapsed:.3f}s ---")
         print(f"  Swings: {len(points)}, Structure: {len(events)}, CISD: {len(cisd)}")
-        print(f"  FVGs: {len(fvgs)}, OBs: {len(obs)}, Breakers: {len(breakers)}")
+        print(f"  FVGs: {len(fvgs)}")
         print(f"  Equal levels: {len(eq_levels)}, Session levels: {len(session_levels)}")
 
         # Full chain should be under 10 seconds total

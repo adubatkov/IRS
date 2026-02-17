@@ -10,19 +10,17 @@
 ## Table of Contents
 
 1. [Swing Highs & Lows (Fractals)](#1-swing-highs--lows-fractals)
-2. [Market Structure: BOS & CHoCH](#2-market-structure-bos--choch)
+2. [Market Structure: BOS & cBOS](#2-market-structure-bos--cbos)
 3. [Change in State of Delivery (CISD)](#3-change-in-state-of-delivery-cisd)
 4. [Fair Value Gap (FVG)](#4-fair-value-gap-fvg)
 5. [Inverted Fair Value Gap (IFVG)](#5-inverted-fair-value-gap-ifvg)
-6. [Order Block (OB)](#6-order-block-ob)
-7. [Breaker Block (BB)](#7-breaker-block-bb)
-8. [Liquidity](#8-liquidity)
-9. [Return to Origin (RTO)](#9-return-to-origin-rto)
-10. [Point of Interest (POI)](#10-point-of-interest-poi)
-11. [First Trouble Area (FTA)](#11-first-trouble-area-fta)
-12. [Premium & Discount Zones](#12-premium--discount-zones)
-13. [Consequent Encroachment (CE / CVB)](#13-consequent-encroachment-ce--cvb)
-14. [Existing Python Libraries](#14-existing-python-libraries)
+6. [Liquidity](#6-liquidity)
+7. [Return to Origin (RTO)](#7-return-to-origin-rto)
+8. [Point of Interest (POI)](#8-point-of-interest-poi)
+9. [First Trouble Area (FTA)](#9-first-trouble-area-fta)
+10. [Premium & Discount Zones](#10-premium--discount-zones)
+11. [Consequent Encroachment (CE / CVB)](#11-consequent-encroachment-ce--cvb)
+12. [Existing Python Libraries](#12-existing-python-libraries)
 
 ---
 
@@ -64,7 +62,7 @@ Bearish Fractal (Swing Low) at index i:
 ```
 ACTIVE:  Fractal detected, level is intact
 SWEPT:   Price wick went past the level but closed back (liquidity sweep)
-BROKEN:  Price closed beyond the level (used for BOS/CHoCH detection)
+BROKEN:  Price closed beyond the level (used for BOS/cBOS detection)
 ```
 
 ### Implementation Notes
@@ -82,15 +80,15 @@ The strategy references both "minor BOS" (слом минорный) and "swing 
 
 ---
 
-## 2. Market Structure: BOS & CHoCH
+## 2. Market Structure: BOS & cBOS
 
 ### Definition
 
-**Break of Structure (BOS)** -- price breaks a swing high/low in the SAME direction as the
-prevailing trend. This is a trend continuation signal.
-
-**Change of Character (CHoCH)** -- price breaks a swing high/low in the OPPOSITE direction
+**BOS (Break of Structure)** -- price breaks a swing high/low in the OPPOSITE direction
 to the prevailing trend. This is a potential trend reversal signal.
+
+**cBOS (Continuation BOS)** -- price breaks a swing high/low in the SAME direction as the
+prevailing trend. This is a trend continuation signal.
 
 ### Detection Algorithm
 
@@ -100,15 +98,15 @@ Requires: Ordered sequence of swing highs and lows
 Track current trend: BULLISH or BEARISH
 
 BULLISH trend:
-  BOS:   New candle breaks above the most recent swing HIGH
+  cBOS:  New candle breaks above the most recent swing HIGH
          -> Trend continuation (still bullish)
-  CHoCH: New candle breaks below the most recent swing LOW
+  BOS:   New candle breaks below the most recent swing LOW
          -> Trend reversal signal (shift to bearish)
 
 BEARISH trend:
-  BOS:   New candle breaks below the most recent swing LOW
+  cBOS:  New candle breaks below the most recent swing LOW
          -> Trend continuation (still bearish)
-  CHoCH: New candle breaks above the most recent swing HIGH
+  BOS:   New candle breaks above the most recent swing HIGH
          -> Trend reversal signal (shift to bullish)
 
 Break detection modes:
@@ -120,7 +118,7 @@ Break detection modes:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | enum | `BOS` or `CHOCH` |
+| `type` | enum | `BOS` or `CBOS` |
 | `direction` | int | +1 bullish, -1 bearish |
 | `broken_level` | float | The swing level that was broken |
 | `broken_index` | int | Index of the candle that performed the break |
@@ -128,11 +126,11 @@ Break detection modes:
 
 ### Relationship to Strategy
 
-In the IRS strategy, "слом структуры" (structure break) can refer to either BOS or CHoCH
+In the IRS strategy, "слом структуры" (structure break) can refer to either BOS or cBOS
 depending on context:
-- **Within a POI (reversal context)**: Structure break = CHoCH (change of character)
+- **Within a POI (reversal context)**: Structure break = BOS (break of structure)
   because price is expected to reverse
-- **During movement to target**: Structure break = BOS (continuation)
+- **During movement to target**: Structure break = cBOS (continuation)
   because price is expected to continue
 
 This is a **configurable parameter** in the backtester.
@@ -140,7 +138,6 @@ This is a **configurable parameter** in the backtester.
 ### Implementation Notes
 
 - Requires maintaining an ordered list of swing highs and lows
-- BOS/CHoCH events generate order blocks (see section 6)
 - The `close_break` parameter significantly affects results -- test both modes
 - Reference implementation: `smartmoneyconcepts` library `bos_choch()` method
 
@@ -150,11 +147,11 @@ This is a **configurable parameter** in the backtester.
 
 ### Definition
 
-**CISD** is an early reversal signal that detects momentum shifts BEFORE traditional BOS/CHoCH.
+**CISD** is an early reversal signal that detects momentum shifts BEFORE traditional BOS.
 It identifies the point where price delivery changes direction by breaking the opening price of
 the candle(s) that initiated the previous directional sequence.
 
-CISD is **faster** than CHoCH but **less reliable**. It provides earlier entry opportunities
+CISD is **faster** than BOS but **less reliable**. It provides earlier entry opportunities
 at the cost of more false signals.
 
 ### Detection Algorithm
@@ -338,121 +335,7 @@ Same as FVG, plus:
 
 ---
 
-## 6. Order Block (OB)
-
-### Definition
-
-An **Order Block** is the last opposing candle before a significant price movement (displacement)
-that breaks structure. It represents the zone where institutional orders were placed.
-
-### Detection Algorithm
-
-```
-Bullish Order Block:
-  1. Identify a BOS/CHoCH to the upside (bullish structure break)
-  2. Look backward from the break point
-  3. Find the last BEARISH candle before the upward displacement
-  4. The range [low, high] of this candle = Bullish Order Block zone
-  5. This zone acts as SUPPORT when price returns
-
-Bearish Order Block:
-  1. Identify a BOS/CHoCH to the downside (bearish structure break)
-  2. Look backward from the break point
-  3. Find the last BULLISH candle before the downward displacement
-  4. The range [low, high] of this candle = Bearish Order Block zone
-  5. This zone acts as RESISTANCE when price returns
-
-Refinement:
-  - Some implementations use the BODY of the candle [open, close] instead of [low, high]
-  - Some use the last N candles (not just one) if there's a cluster of opposing candles
-```
-
-### Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `direction` | int | +1 bullish, -1 bearish |
-| `top` | float | High of the order block candle |
-| `bottom` | float | Low of the order block candle |
-| `creation_index` | int | Index of the OB candle |
-| `bos_index` | int | Index of the BOS that validated this OB |
-| `timeframe` | str | Timeframe |
-| `status` | enum | `ACTIVE`, `TESTED`, `MITIGATED`, `BROKEN` |
-| `volume` | float | Volume at the OB candle (higher = stronger) |
-
-### Lifecycle
-
-```
-ACTIVE:     OB created by BOS, not yet tested
-TESTED:     Price returned to the OB zone and reacted (wick or bounce)
-MITIGATED:  Price returned and traded through part of the OB zone
-BROKEN:     Price closed through the entire OB zone -> becomes BREAKER BLOCK
-```
-
-### Role in Strategy
-
-- OB test = a valid confirmation event
-- Stop-loss can be placed behind an OB
-- OBs on higher timeframes are stronger POIs
-- An OB that gets broken becomes a Breaker Block (role reversal)
-
-### Implementation Notes
-
-- OBs REQUIRE a preceding BOS/CHoCH to be valid -- a random opposing candle is NOT an OB
-- Volume analysis can assess OB strength (higher volume = more institutional activity)
-- The `smartmoneyconcepts` library provides `ob()` with `close_mitigation` parameter
-- Track with `close_mitigation=True` for stricter detection (body close through OB)
-
----
-
-## 7. Breaker Block (BB)
-
-### Definition
-
-A **Breaker Block** is a failed Order Block. When price breaks through an OB instead of
-bouncing from it, the OB's role inverts: former support becomes resistance and vice versa.
-
-### Detection Algorithm
-
-```
-Bearish Breaker Block (from failed bullish OB):
-  1. A bullish OB exists (acting as support)
-  2. Price CLOSES BELOW the bottom of this bullish OB
-  3. The bullish OB is now a bearish Breaker Block
-  4. When price returns to this zone, it acts as RESISTANCE
-
-Bullish Breaker Block (from failed bearish OB):
-  1. A bearish OB exists (acting as resistance)
-  2. Price CLOSES ABOVE the top of this bearish OB
-  3. The bearish OB is now a bullish Breaker Block
-  4. When price returns to this zone, it acts as SUPPORT
-```
-
-### Properties
-
-Same as Order Block, plus:
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `original_direction` | int | Direction of the original OB |
-| `break_index` | int | Candle that broke through the OB |
-
-### Role in Strategy
-
-- Breaker test = a valid confirmation event
-- Stop-loss can be placed behind a breaker block
-- Breaker blocks often appear at market structure shifts
-- In the strategy, "тест брейкера" is explicitly listed as a stop-loss placement option
-
-### Implementation Notes
-
-- A breaker block is the "inverse" concept to an order block -- same zone, opposite role
-- Track by monitoring OB objects for breakage events
-- Breaker blocks can also be mitigated (traded through again) -- then they're invalid
-
----
-
-## 8. Liquidity
+## 6. Liquidity
 
 ### Definition
 
@@ -524,13 +407,12 @@ Liquidity Sweep Detection:
 
 ---
 
-## 9. Return to Origin (RTO)
+## 7. Return to Origin (RTO)
 
 ### Definition
 
 **RTO** is the price behavior of returning to the "origin" of an impulse move.
-The origin is typically the FVG, order block, or breaker block that initiated
-the displacement/BOS.
+The origin is typically the FVG or IFVG that initiated the displacement/BOS.
 
 ### Detection Algorithm
 
@@ -538,8 +420,7 @@ the displacement/BOS.
 After a BOS or significant displacement:
   1. Identify the ORIGIN:
      - The FVG that formed during the displacement
-     - The order block that preceded the displacement
-     - The breaker block if the move was a reversal
+     - The IFVG if the move inverted a previous FVG
   2. Track whether price RETURNS to this origin zone
   3. RTO is confirmed when price touches the origin zone
 
@@ -553,7 +434,7 @@ RTO completion modes:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `origin_type` | enum | `FVG`, `OB`, `BB`, `IFVG` |
+| `origin_type` | enum | `FVG`, `IFVG` |
 | `origin_zone` | tuple | (top, bottom) of the origin zone |
 | `displacement_index` | int | Index where the impulse move started |
 | `status` | enum | `PENDING`, `COMPLETED`, `EXPIRED` |
@@ -563,7 +444,7 @@ RTO completion modes:
 - RTO is the preferred entry method after aggressive exits from POIs
 - Waiting for RTO provides: tighter stop, higher RR, fewer resweeps
 - RTO on local POIs (15m/30m) = add-on opportunity
-- The strategy explicitly says: "wait for at least a local RTO for FVG/breaker test"
+- The strategy explicitly says: "wait for at least a local RTO for FVG test"
 
 ### Implementation Notes
 
@@ -573,7 +454,7 @@ RTO completion modes:
 
 ---
 
-## 10. Point of Interest (POI)
+## 8. Point of Interest (POI)
 
 ### Definition
 
@@ -587,8 +468,6 @@ A POI can be any of the following (or a combination):
 
 ```
 - FVG zone (untested or partially tested)
-- Order Block zone
-- Breaker Block zone
 - IFVG zone
 - Liquidity level (EQH/EQL)
 - Previous session/day/week high or low
@@ -600,8 +479,6 @@ A POI can be any of the following (or a combination):
 Base score per component:
   FVG from HTF (4H/1H):        +3
   FVG from LTF (30m/15m):      +1
-  Order Block:                  +2
-  Breaker Block:                +2
   IFVG:                         +2
   Liquidity cluster (3+ touches): +2
   Session High/Low:              +1
@@ -627,7 +504,7 @@ This scoring is a **starting point** for backtesting -- actual weights should be
 
 ---
 
-## 11. First Trouble Area (FTA)
+## 9. First Trouble Area (FTA)
 
 ### Definition
 
@@ -657,7 +534,7 @@ FTA handling is critical (see Strategy document section 5):
 
 ---
 
-## 12. Premium & Discount Zones
+## 10. Premium & Discount Zones
 
 ### Definition
 
@@ -695,12 +572,12 @@ Given swing_high and swing_low:
 
 ---
 
-## 13. Consequent Encroachment (CE / CVB)
+## 11. Consequent Encroachment (CE / CVB)
 
 ### Definition
 
 **Consequent Encroachment** (CE), also known as CVB in Russian-language trading,
-is the **50% (midpoint)** of any FVG, order block, or price range.
+is the **50% (midpoint)** of any FVG or price range.
 
 ### Detection Algorithm
 
@@ -717,7 +594,7 @@ For any zone with [top, bottom]:
 
 ---
 
-## 14. Existing Python Libraries
+## 12. Existing Python Libraries
 
 ### smartmoneyconcepts (PyPI)
 
@@ -768,7 +645,6 @@ smc.retracements(ohlc, swing_highs_lows)
 **Cons:**
 - Missing CISD detection
 - Missing IFVG detection
-- Missing Breaker Block detection (only OB -> no OB-to-BB lifecycle)
 - Missing RTO tracking
 - Missing multi-timeframe coordination
 - Missing real-time state management (designed for batch analysis)
@@ -777,7 +653,7 @@ smc.retracements(ohlc, swing_highs_lows)
 **Recommendation:**
 Use as a **reference implementation** for individual concept algorithms.
 Build our own system that:
-1. Implements missing concepts (CISD, IFVG, BB, RTO)
+1. Implements missing concepts (CISD, IFVG, RTO)
 2. Adds lifecycle management (object state tracking)
 3. Adds multi-timeframe coordination
 4. Adds the strategy layer (confirmations, entries, exits)
@@ -787,13 +663,11 @@ on the same data and compare results to verify correctness.
 
 ---
 
-## 15. Cross-Concept Relationships
+## 13. Cross-Concept Relationships
 
 ```
 Swing Highs/Lows
-  ├── BOS/CHoCH (requires swings)
-  │     └── Order Block (created by BOS/CHoCH)
-  │           └── Breaker Block (failed OB)
+  ├── BOS/cBOS (requires swings)
   ├── Liquidity (equal highs/lows from swings)
   └── Premium/Discount (range between swings)
 
@@ -802,7 +676,7 @@ FVG (independent detection)
   ├── CE/CVB (midpoint of FVG)
   └── RTO (return to FVG origin)
 
-POI = Composite of: FVG + OB + BB + IFVG + Liquidity + Session levels
+POI = Composite of: FVG + IFVG + Liquidity + Session levels
 FTA = First opposing POI on the path to target
 
 Strategy Confirmations = Events within POI:
@@ -810,9 +684,9 @@ Strategy Confirmations = Events within POI:
   2. Liquidity Sweep
   3. FVG Inversion
   4. Inversion Test
-  5. Structure Break (BOS/CHoCH/CISD)
-  + Additional: FVG test, OB test, BB test, CVB test
+  5. Structure Break (BOS/cBOS/CISD)
+  + Additional: FVG test, CVB test
 ```
 
 This dependency graph determines the **build order** in the project:
-first swings, then structure, then FVG, then OB/BB, then liquidity, then POI, then strategy.
+first swings, then structure, then FVG, then liquidity, then POI, then strategy.

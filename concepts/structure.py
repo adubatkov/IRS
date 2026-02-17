@@ -1,7 +1,7 @@
-"""Market Structure detection: BOS, CHoCH, and CISD.
+"""Market Structure detection: BOS, cBOS, and CISD.
 
-BOS (Break of Structure): Price breaks a swing level in the same direction as trend.
-CHoCH (Change of Character): Price breaks a swing level against the current trend.
+BOS (Break of Structure): Price breaks a swing level against the current trend (reversal signal).
+cBOS (Continuation BOS): Price breaks a swing level in the same direction as trend (continuation).
 CISD (Change in State of Delivery): Early momentum shift via candle open breaks.
 """
 
@@ -14,7 +14,7 @@ from concepts.fractals import detect_swings, get_swing_points
 
 class StructureType(str, Enum):
     BOS = "BOS"
-    CHOCH = "CHOCH"
+    CBOS = "CBOS"
 
 
 class Trend(str, Enum):
@@ -23,12 +23,12 @@ class Trend(str, Enum):
     UNDEFINED = "UNDEFINED"
 
 
-def detect_bos_choch(
+def detect_structure(
     df: pd.DataFrame,
     swing_length: int = 5,
     close_break: bool = True,
 ) -> pd.DataFrame:
-    """Detect BOS and CHoCH events from OHLC data.
+    """Detect BOS and cBOS events from OHLC data.
 
     Args:
         df: DataFrame with 'open', 'high', 'low', 'close' columns.
@@ -38,7 +38,7 @@ def detect_bos_choch(
 
     Returns:
         DataFrame with one row per structure event:
-        - type: BOS or CHOCH
+        - type: BOS (against trend) or CBOS (with trend)
         - direction: +1 bullish, -1 bearish
         - broken_level: the swing level that was broken
         - broken_index: index of the candle that broke it
@@ -109,9 +109,9 @@ def detect_bos_choch(
             sh_idx, sh_level = last_swing_high
             if break_up > sh_level:
                 if trend == Trend.BULLISH or trend == Trend.UNDEFINED:
-                    event_type = StructureType.BOS
+                    event_type = StructureType.CBOS
                 else:
-                    event_type = StructureType.CHOCH
+                    event_type = StructureType.BOS
                 events.append({
                     "type": event_type,
                     "direction": 1,
@@ -127,9 +127,9 @@ def detect_bos_choch(
             sl_idx, sl_level = last_swing_low
             if break_down < sl_level:
                 if trend == Trend.BEARISH or trend == Trend.UNDEFINED:
-                    event_type = StructureType.BOS
+                    event_type = StructureType.CBOS
                 else:
-                    event_type = StructureType.CHOCH
+                    event_type = StructureType.BOS
                 events.append({
                     "type": event_type,
                     "direction": -1,
