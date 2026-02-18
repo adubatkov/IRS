@@ -1,354 +1,282 @@
-# Phase 3: Strategy Logic
+# Phase 4: Backtest Engine
 
 ## Context
 
-Phase 1 (Data) and Phase 2 (Concepts) are complete. 136 tests pass. All concept modules are built and tested:
-- `concepts/fractals.py`, `concepts/structure.py`, `concepts/fvg.py`
-- `concepts/liquidity.py`, `concepts/zones.py`, `concepts/registry.py`
+Phases 1-3 are complete (404 tests pass). Phase 3 produces `Signal` objects from the strategy logic layer. Phase 4 builds the **backtest engine** that consumes those signals: executing trades with commission/slippage, tracking positions and equity, and computing performance metrics.
 
-Phase 3 builds the **strategy logic layer** on top of concepts: multi-timeframe orchestration, bias determination, confirmation counting, entry/exit decisions, and position management. The output is `Signal` objects that Phase 4 (Backtest Engine) will consume.
-
-**Housekeeping:** `config.py` still has `OrderBlocksConfig` from deleted OB module -- remove it in Step 0.
+The engine sits above Phase 3 and reuses all existing modules as-is. No modifications to Phases 1-3 are required.
 
 ## Architecture
 
 ```
-Phase 2 (concepts/)          Phase 3 (context/ + strategy/)          Phase 4 (engine/)
+Phase 3 (strategy/)                  Phase 4 (engine/)
 
-fractals ─┐                  ┌─ mtf_manager ──── bias ──── sync ─┐
-structure ─┤  pre-computed   │                                     │
-fvg ───────┤ ═══════════════>│  confirmations ─── state_machine ──>│ Signal objects
-liquidity ─┤  per timeframe  │  fta_handler                        │ ═══════════>  backtester
-zones ─────┤                 │  entries / exits / addons ──────────┘
-registry ──┘                 │  risk
-                             └─ types.py (shared enums/dataclasses)
+evaluate_entry() ──> Signal ──┐     ┌── backtester.py (orchestrator)
+evaluate_exit()  ──> Signal ──┤     │     _process_bar() loop
+evaluate_addon() ──> Signal ──┘     │        │
+                                    ├── portfolio.py (positions, equity, execution)
+StateMachineManager ───────────────>│     open_position(), close_position()
+MTFManager ────────────────────────>│     apply_slippage(), mark_to_market()
+bias / sync_checker ───────────────>├── trade_log.py (trade journal)
+                                    │     TradeRecord, MFE/MAE, R-multiple
+                                    ├── metrics.py (performance analytics)
+                                    │     Sharpe, drawdown, win rate, profit factor
+                                    └── events.py (audit trail)
+                                          EventLog for debugging
+
+Output: BacktestResult(trade_log, equity_curve, metrics, signals, events)
 ```
 
-**Key design decisions:**
-1. **Batch pre-compute + time-gated access**: All concepts computed once across 7 TFs before backtest. MTF manager prevents look-ahead by filtering results by timestamp.
-2. **Signals as boundary contract**: Phase 3 produces `Signal` dataclasses; Phase 4 consumes them. No portfolio/execution coupling.
-3. **Pure functions except state machine**: `StateMachineManager` is the only stateful class. Everything else is pure and independently testable.
-4. **Event list per POI**: Confirmations are `list[Confirmation]` (5-8 items), not DataFrames.
-5. **Config injection everywhere**: No global state. Every function receives its config as a parameter.
+**Entry point**: `result = run_backtest(config, df_1m)`
 
-## Build Order (3 Tiers)
+## Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Same-bar SL+TP | Check SL first | Conservative; avoids phantom wins |
+| Exit before entry per bar | Exits processed first | Frees position slots for same-bar replacement |
+| Equity storage | Pre-allocated numpy array | Performance: zero allocation in hot loop |
+| Bias/sync updates | Only on TF boundary close | HTF bias can't change intra-candle |
+| POI registration | Dynamic per HTF close | Prevents registering POIs before visible |
+| Cash accounting | Two-step (commission at entry, proceeds at exit) | Matches real brokerage; equity always accurate |
+| MFE/MAE | Price distance from entry | Simplest in hot loop; convert to R at close |
+
+## Build Order
 
 ```
-Tier 1 (no Phase-3 internal deps):
-  Step 0: config.py cleanup (remove OrderBlocksConfig)
-  Step 1: strategy/types.py
-  Step 2: context/mtf_manager.py
-  Step 3: context/bias.py
+Tier 1 (no internal deps, parallel):
+  Step 1a: engine/events.py        (~60 LOC)
+  Step 1b: engine/trade_log.py     (~150 LOC)
 
 Tier 2 (depends on Tier 1):
-  Step 4: context/sync_checker.py
-  Step 5: strategy/confirmations.py        <-- core strategy logic
-  Step 6: strategy/fta_handler.py
-  Step 7: strategy/risk.py
+  Step 2:  engine/portfolio.py     (~200 LOC)
 
-Tier 3 (depends on Tier 2):
-  Step 8:  context/state_machine.py        <-- orchestrator
-  Step 9:  strategy/entries.py
-  Step 10: strategy/exits.py + strategy/addons.py
-  Step 11: Integration test + notebook
+Tier 3 (no deps on portfolio, parallel with Tier 2):
+  Step 3:  engine/metrics.py       (~200 LOC)
+
+Tier 4 (depends on all above):
+  Step 4:  engine/backtester.py    (~300 LOC)
+
+Step 5:  Integration test + engine/__init__.py exports
 ```
 
 ---
 
-## Step 0: Config Cleanup
+## Step 1a: `engine/events.py` -- Event Log
 
-**File:** `config.py`
-- Remove `OrderBlocksConfig` dataclass
-- Remove `orderblocks` field from `ConceptsConfig`
-- Add `FTAConfig` to `StrategyConfig`:
-  ```python
-  @dataclass
-  class FTAConfig:
-      close_threshold_pct: float = 0.3
-      invalidation_mode: str = "close"
-  ```
-
----
-
-## Step 1: `strategy/types.py` -- Shared Types
-
-All Phase 3 modules import from here. No external Phase 3 dependencies.
-
-**Enums:**
-- `Bias` (BULLISH, BEARISH, UNDEFINED)
-- `SyncMode` (SYNC, DESYNC, UNDEFINED)
-- `POIPhase` (IDLE, POI_TAPPED, COLLECTING, READY, POSITIONED, MANAGING, CLOSED)
-- `ConfirmationType` (POI_TAP, LIQUIDITY_SWEEP, FVG_INVERSION, INVERSION_TEST, STRUCTURE_BREAK, FVG_WICK_REACTION, CVB_TEST, ADDITIONAL_CBOS)
-- `SignalType` (ENTER, EXIT, MODIFY_SL, ADD_ON, MOVE_TO_BE)
-- `ExitReason` (TARGET_HIT, STOP_LOSS_HIT, BREAKEVEN_HIT, FTA_VALIDATED, POI_INVALIDATED, FLIP)
-
-**Dataclasses:**
-- `Confirmation(type, timestamp, bar_index, details: dict)`
-- `Signal(type, poi_id, direction, timestamp, price, stop_loss, target, position_size_mult, reason, metadata)`
-- `POIState(poi_id, poi_data, phase, confirmations, entry_price, stop_loss, target, breakeven_level, fta, addons, created_at, last_updated)`
-
-**Test:** `tests/unit/test_types.py` -- enum values, dataclass defaults, serialization
-
----
-
-## Step 2: `context/mtf_manager.py` -- Multi-Timeframe Manager
-
-**Dependencies:** `data/resampler.py`, all `concepts/` modules, `config.py`
+Lightweight append-only audit trail for backtest debugging.
 
 ```python
-class TimeframeData:
-    """Pre-computed concept data for one TF."""
-    candles, swings, swing_points, structure, cisd,
-    fvgs, fvg_lifecycle, liquidity, session_levels, pois
+class EventType(str, Enum):
+    POI_REGISTERED, POI_TAPPED, ENTRY, EXIT, BE_MOVED,
+    SL_MODIFIED, ADDON, BIAS_UPDATED, SYNC_UPDATED, POSITION_REJECTED
 
-class MTFManager:
-    def initialize(self, df_1m: pd.DataFrame) -> None
-        # Resample to all TFs, run full concept pipeline per TF
+@dataclass
+class Event:
+    type: EventType
+    timestamp: pd.Timestamp
+    poi_id: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def get_candle_at(self, tf, timestamp) -> pd.Series | None
-        # Most recently CLOSED candle (no look-ahead)
-
-    def get_pois_at(self, tf, timestamp) -> pd.DataFrame
-    def get_structure_at(self, tf, timestamp) -> pd.DataFrame
-    def get_fvgs_at(self, tf, timestamp) -> pd.DataFrame
-
-    def get_all_active_pois(self, timestamp) -> pd.DataFrame
-        # Aggregate across all TFs
-
-    def tf_just_closed(self, tf, timestamp_1m) -> bool
-        # Did a new candle just close on this TF?
+class EventLog:
+    def emit(self, event_type, timestamp, poi_id="", **details) -> None
+    def get_events(self, event_type=None) -> list[Event]
+    def to_dataframe(self) -> pd.DataFrame
 ```
 
-**Test:** `tests/unit/test_mtf_manager.py`
-- Initialize with synthetic 1m data, verify TF candle counts
-- `get_candle_at()` returns correct candle, no look-ahead
-- `tf_just_closed()` fires at correct boundaries
-- `get_pois_at()` filters correctly by timestamp
-
-**Integration:** `tests/integration/test_mtf_pipeline.py`
-- Real NAS100 data (10K bars), verify concept counts per TF
+**Test**: `tests/unit/test_events.py` (~5 tests) -- emit/retrieve, filtering, to_dataframe, empty log
 
 ---
 
-## Step 3: `context/bias.py` -- HTF Bias
+## Step 1b: `engine/trade_log.py` -- Trade Journal
 
-**Dependencies:** `strategy/types.py`
+Records complete trade lifecycle with MFE/MAE tracking.
 
 ```python
-def determine_bias(candles, structure_events, lookback=10) -> Bias
-    # From recent structure: predominantly bullish cBOS -> BULLISH, etc.
+@dataclass
+class TradeRecord:
+    trade_id: int
+    poi_id: str
+    direction: int                    # +1/-1
+    entry_time: pd.Timestamp
+    entry_price: float                # After slippage
+    entry_signal_price: float         # Before slippage
+    position_size: float
+    exit_time: Optional[pd.Timestamp] = None
+    exit_price: Optional[float] = None
+    exit_signal_price: Optional[float] = None
+    exit_reason: str = ""
+    realized_pnl: float = 0.0
+    commission_entry: float = 0.0
+    commission_exit: float = 0.0
+    gross_pnl: float = 0.0
+    max_favorable_excursion: float = 0.0  # MFE in price units
+    max_adverse_excursion: float = 0.0    # MAE in price units
+    sync_mode: str = ""
+    timeframe: str = ""
+    confirmation_count: int = 0
+    stop_loss: float = 0.0
+    target: float = 0.0
+    is_addon: bool = False
+    parent_trade_id: Optional[int] = None
+    outcome: str = ""                 # WIN/LOSS/BREAKEVEN
+    r_multiple: float = 0.0
+    duration_bars: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-def determine_bias_at(candles, structure_events, timestamp, lookback=10) -> Bias
-    # Time-filtered version
+def classify_outcome(realized_pnl, commission_total) -> str
+def compute_r_multiple(entry_price, exit_price, stop_loss, direction) -> float
 
-def get_trend_from_structure(structure_events, n_recent=3) -> Bias
-    # Direction of last N structure events
+class TradeLog:
+    def open_trade(...) -> int           # Returns trade_id
+    def close_trade(trade_id, ...) -> TradeRecord
+    def update_excursion(trade_id, candle_high, candle_low) -> None  # Hot path
+    def get_open_trades() -> list[TradeRecord]
+    def get_trade(trade_id) -> TradeRecord
+    def to_dataframe() -> pd.DataFrame
+    def to_csv(path) -> None
 ```
 
-**Test:** `tests/unit/test_bias.py` -- uptrend=BULLISH, downtrend=BEARISH, mixed=UNDEFINED
+**Test**: `tests/unit/test_trade_log.py` (~10 tests) -- open/close win/loss/BE, MFE/MAE tracking, R-multiple, to_dataframe, to_csv
 
 ---
 
-## Step 4: `context/sync_checker.py` -- Sync/Desync
-
-**Dependencies:** `strategy/types.py`, `context/bias.py`
+## Step 2: `engine/portfolio.py` -- Position & Equity Management
 
 ```python
-def check_sync(htf_bias, ltf_bias) -> SyncMode
-    # Both same -> SYNC, different -> DESYNC
+@dataclass
+class PositionInfo:
+    trade_id: int
+    poi_id: str
+    direction: int
+    entry_price: float
+    position_size: float
+    stop_loss: float
+    target: float
+    entry_bar_index: int
+    is_addon: bool = False
+    parent_trade_id: Optional[int] = None
 
-def get_position_size_multiplier(sync_mode, risk_config) -> float
-    # SYNC -> 1.0, DESYNC -> 0.5
+class Portfolio:
+    def __init__(self, backtest_config, risk_config, n_bars, trade_log, event_log=None)
 
-def get_target_mode(sync_mode) -> str
-    # SYNC -> "distant", DESYNC -> "local"
+    @property equity -> float           # cash + unrealized P&L
+    @property cash -> float
+    @property open_position_count -> int  # Distinct poi_ids
+
+    def can_open_position() -> bool     # < max_concurrent_positions
+    def open_position(signal, sync_mode, bar_index, ...) -> Optional[int]
+    def close_position(poi_id, exit_signal_price, exit_reason, timestamp, bar_index, trade_id=None) -> list[TradeRecord]
+    def modify_stop_loss(poi_id, new_sl) -> None
+    def update_mark_to_market(bar_index, candle_high, candle_low, candle_close) -> None
+    def get_equity_curve() -> np.ndarray
+    def get_positions_for_poi(poi_id) -> list[PositionInfo]
+    def has_position_for_poi(poi_id) -> bool
+
+def apply_slippage(price, direction, is_entry, slippage_pct) -> float
+    # Always against trader: LONG entry up, SHORT entry down, etc.
 ```
 
-**Test:** `tests/unit/test_sync_checker.py` -- all 9 Bias combinations, multipliers, target modes
+**Execution flow in `open_position()`**:
+1. Check `max_concurrent_positions` (skip for add-ons to existing poi_id)
+2. Apply slippage to get fill price
+3. `calculate_position_size(equity, fill, sl, sync_mode, risk_config)` for size
+4. Entry commission = fill * size * commission_pct, deduct from cash
+5. Record in trade_log, track in _positions
+6. Emit ENTRY event
+
+**Execution flow in `close_position()`**:
+1. Apply slippage to get fill price
+2. Gross P&L = direction * (fill - entry) * size
+3. Exit commission = fill * size * commission_pct
+4. Cash += direction * (fill - entry) * size - exit_commission
+5. Record in trade_log, remove from _positions
+6. Emit EXIT event
+
+**Test**: `tests/unit/test_portfolio.py` (~12 tests) -- open/close long/short, slippage, commission, max positions, add-on bypass, equity curve, unrealized P&L, zero-size rejection
 
 ---
 
-## Step 5: `strategy/confirmations.py` -- Confirmation Counting
+## Step 3: `engine/metrics.py` -- Performance Analytics
 
-**Dependencies:** `strategy/types.py`, concept type signatures
-
-This is the **core strategy module**. 8 individual checkers + master collector.
+Pure functions, no state. Operates on trade DataFrame and equity curve.
 
 ```python
-# Individual checkers (each returns dict with details or None):
-def check_poi_tap(candle_high, candle_low, poi_top, poi_bottom, poi_direction) -> bool
-def check_liquidity_sweep(candle_h/l/c, nearby_liquidity, poi_direction) -> dict | None
-def check_fvg_inversion(fvg_lifecycle, bar_index, poi_direction) -> dict | None
-def check_inversion_test(candle_h/l, inverted_fvgs, poi_direction) -> dict | None
-def check_structure_break(structure_events, bar_index, poi_direction) -> dict | None
-def check_fvg_wick_reaction(candle, nearby_fvgs, poi_direction) -> dict | None
-def check_cvb_test(candle_h/l/c, nearby_fvgs, poi_direction) -> dict | None
-def check_additional_cbos(structure_events, bar_index, poi_direction, existing) -> dict | None
+@dataclass
+class MetricsResult:
+    total_return_pct, cagr_pct, max_drawdown_pct, max_drawdown_duration_bars
+    sharpe_ratio, sortino_ratio, calmar_ratio
+    total_trades, winning_trades, losing_trades, breakeven_trades
+    win_rate_pct, avg_rr, avg_win_rr, avg_loss_rr
+    profit_factor, expectancy
+    avg_trade_duration_bars
+    sync_stats: dict           # {SYNC: {trades, win_rate, avg_rr, pf}, DESYNC: {...}}
+    monthly_returns: pd.DataFrame  # month, return_pct, trade_count
+    final_equity, peak_equity
 
-# Master function:
-def collect_confirmations(candle, bar_index, timestamp, poi_data,
-    existing_confirms, nearby_fvgs, fvg_lifecycle, nearby_liquidity,
-    structure_events, config) -> list[Confirmation]
-
-# Helpers:
-def confirmation_count(confirms) -> int
-def is_ready(confirms, config) -> bool
-def has_fifth_confirm_trap(confirms) -> bool
-    # True if exactly 5 confirms but no FVG test/inversion test
+def compute_metrics(trade_df, equity_curve, initial_capital, bars_per_year) -> MetricsResult
+def compute_drawdown(equity_curve) -> tuple[np.ndarray, float, int]
+def compute_sharpe(equity_curve, bars_per_year) -> float
+def compute_sortino(equity_curve, bars_per_year) -> float
+def compute_calmar(cagr, max_drawdown_pct) -> float
+def compute_trade_stats(trade_df) -> dict
+def compute_sync_mode_stats(trade_df) -> dict
+def compute_monthly_returns(trade_df, equity_curve, timestamps, initial_capital) -> pd.DataFrame
 ```
 
-**Rules encoded:**
-- RULE 2: Dedup by type per occurrence
-- RULE 3: FVG wick reaction only valid after 5+ confirms exist
-- RULE 4: Per-POI counting (caller responsibility)
-- 5th-confirm trap: 5 confirms but no FVG_INVERSION/INVERSION_TEST/FVG_WICK_REACTION -> wait for RTO
-
-**Test:** `tests/unit/test_confirmations.py` -- most important test file
-- Each checker individually
-- Incremental collection across bars
-- Dedup, max cap, 5th-confirm trap detection
-- FVG wick blocked under 5 confirms
+**Test**: `tests/unit/test_metrics.py` (~10 tests) -- return, drawdown, Sharpe/Sortino, win rate, profit factor, sync stats, no-trades edge case, all-winners edge case
 
 ---
 
-## Step 6: `strategy/fta_handler.py` -- First Trouble Area
-
-**Dependencies:** `strategy/types.py`
+## Step 4: `engine/backtester.py` -- Main Orchestrator
 
 ```python
-def detect_fta(current_price, target, direction, active_pois) -> dict | None
-    # For LONG: first bearish POI between price and target
-    # For SHORT: first bullish POI between price and target
+@dataclass
+class BacktestResult:
+    trade_log: pd.DataFrame
+    equity_curve: np.ndarray
+    metrics: MetricsResult
+    signals: list[Signal]
+    events: pd.DataFrame
+    config: Config
+    timestamps: pd.DatetimeIndex
 
-def classify_fta_distance(fta, current_price, target, threshold=0.3) -> str
-    # "far" | "close" | "none"
+class Backtester:
+    def __init__(self, config: Config)
+    def run(self, df_1m: pd.DataFrame) -> BacktestResult
 
-def check_fta_invalidation(fta, candle_close) -> bool
-    # Price closed through FTA
-
-def check_fta_validation(fta, candle_h/l/c, direction) -> bool
-    # Price rejected at FTA (bounced back)
-
-def should_enter_with_fta(fta, classification) -> tuple[bool, str]
-    # Decision matrix: far=enter, close=wait, none=enter
+def run_backtest(config: Config, df_1m: pd.DataFrame) -> BacktestResult
 ```
 
-**Test:** `tests/unit/test_fta_handler.py` -- detection, distance, invalidation/validation, decision matrix
+**Main loop in `_process_bar(candle, bar_index, timestamp)`**:
+```
+a. For each HTF: if tf_just_closed -> register_new_pois, update_bias_sync
+b. Build ConceptData from 1m TimeframeData
+c. sm.update(candle, bar_index, timestamp, concept_data)
+d. _handle_exits(candle, bar_index, timestamp)     # EXIT BEFORE ENTRY
+e. _handle_entries(candle, bar_index, timestamp)
+f. _handle_addons(candle, bar_index, timestamp)
+g. portfolio.update_mark_to_market(bar_index, high, low, close)
+```
+
+**POI registration**: Dynamic -- checks each TF on boundary close, registers any POI with `creation_time <= timestamp` not yet tracked. Fingerprint = `{tf}_{direction}_{top:.6f}_{bottom:.6f}`.
+
+**Bias/sync**: HTF = 1H structure bias, LTF = 5m structure bias. Updated only when 1H or 5m candle just closed.
+
+**Test**: `tests/integration/test_backtest_e2e.py` (~5 tests) -- full run with synthetic data, deterministic results, no look-ahead, max positions respected, equity curve length
 
 ---
 
-## Step 7: `strategy/risk.py` -- Position Sizing & SL
+## Step 5: Integration & Exports
 
-**Dependencies:** `strategy/types.py`, `context/sync_checker.py`
-
+**`engine/__init__.py`**:
 ```python
-def calculate_stop_loss(poi_data, direction, nearby_fvgs, nearby_liquidity,
-    method="behind_liquidity") -> float
-    # Behind FVG/CVB/liquidity/POI zone
-
-def calculate_position_size(equity, entry, sl, sync_mode, risk_config) -> float
-    # risk_amount = equity * max_risk * sync_mult / distance
-
-def validate_risk(entry, sl, target, direction, min_rr=2.0) -> tuple[bool, float]
-    # Check minimum RR
-
-def calculate_breakeven_level(entry, direction, commission_pct=0.0006) -> float
+from engine.backtester import run_backtest, Backtester, BacktestResult
+from engine.portfolio import Portfolio
+from engine.trade_log import TradeLog, TradeRecord
+from engine.metrics import compute_metrics, MetricsResult
+from engine.events import EventLog, EventType
 ```
-
-**Test:** `tests/unit/test_risk.py` -- SL placement, position sizing, RR validation, BE calculation
-
----
-
-## Step 8: `context/state_machine.py` -- POI State Orchestrator
-
-**Dependencies:** `strategy/types.py`, `strategy/confirmations.py`
-
-```python
-def make_poi_id(timeframe, direction, creation_index) -> str
-
-def transition(state, candle, bar_index, timestamp, concept_data, config)
-    -> tuple[POIState, list[Signal]]
-    # Core transition: IDLE -> TAPPED -> COLLECTING -> READY -> POSITIONED -> MANAGING -> CLOSED
-
-class StateMachineManager:
-    def register_poi(poi_data, timeframe, timestamp) -> str
-    def update(candle, bar_index, timestamp, concept_data) -> list[Signal]
-    def get_active_states() -> list[POIState]
-    def get_positioned_states() -> list[POIState]
-    def invalidate_poi(poi_id, reason) -> None
-```
-
-**Test:** `tests/unit/test_state_machine.py`
-- Full lifecycle (IDLE through CLOSED)
-- Multiple simultaneous POIs
-- Invalidation forces CLOSED
-- Signals emitted at correct transitions
-
----
-
-## Step 9: `strategy/entries.py` -- Entry Decisions
-
-**Dependencies:** `strategy/types.py`, `confirmations.py`, `fta_handler.py`, `risk.py`
-
-```python
-def evaluate_entry(poi_state, candle, bar_index, timestamp, fta, fta_class,
-    sync_mode, config) -> Signal | None
-    # Decision tree:
-    # 1. Phase == READY?
-    # 2. FTA close? -> wait
-    # 3. 5th-confirm trap? -> wait for RTO
-    # 4. Conservative: structural exit + SL behind liquidity
-    # 5. Aggressive: immediate BU plan or wait RTO
-
-def check_conservative_entry(poi_state, candle, config) -> bool
-def check_aggressive_entry(poi_state, candle, config) -> bool
-def check_rto_entry(poi_state, candle, nearby_fvgs) -> bool
-def build_entry_signal(...) -> Signal
-```
-
-**Test:** `tests/unit/test_entries.py` -- conservative/aggressive/RTO, FTA blocking, trap prevention
-
----
-
-## Step 10: `strategy/exits.py` + `strategy/addons.py`
-
-### exits.py
-
-```python
-def check_target_hit(candle_h/l, target, direction) -> bool
-def check_stop_loss_hit(candle_h/l, sl, direction) -> bool
-def check_structural_breakeven(poi_state, structure, bar_index, config) -> float | None
-def check_fta_breakeven(poi_state, fta, current_price, config) -> float | None
-def select_target(direction, price, pois, swings, sync_mode, config) -> float
-def evaluate_exit(poi_state, candle, bar_index, timestamp, fta, structure, config) -> Signal | None
-```
-
-### addons.py
-
-```python
-def find_addon_candidates(direction, price, target, local_pois, timestamp) -> pd.DataFrame
-def evaluate_addon(main_state, candidate, candle, bar_index, timestamp, structure, config) -> Signal | None
-def should_addon_bu(addon_state, structure, bar_index) -> bool
-```
-
-**Tests:** `tests/unit/test_exits.py`, `tests/unit/test_addons.py`
-
----
-
-## Step 11: Integration Test + Notebook
-
-### `tests/integration/test_strategy_pipeline.py`
-Full pipeline test with synthetic data containing a known trade pattern:
-1. Initialize MTF manager
-2. Step bar-by-bar through state machine
-3. Verify: bias correct, sync correct, confirmations counted, entry signal at right bar, exit at target
-
-### `notebooks/07_strategy_viewer.ipynb`
-Visualize on real NAS100 data:
-- POI detection across timeframes
-- Confirmation events marked on chart
-- Entry/exit signals overlaid
-- State machine phase timeline
 
 ---
 
@@ -356,30 +284,22 @@ Visualize on real NAS100 data:
 
 | Step | Source File | Test File | Depends On |
 |------|------------|-----------|------------|
-| 0 | `config.py` (edit) | existing tests | -- |
-| 1 | `strategy/types.py` | `tests/unit/test_types.py` | -- |
-| 2 | `context/mtf_manager.py` | `tests/unit/test_mtf_manager.py` | data/*, concepts/* |
-| 3 | `context/bias.py` | `tests/unit/test_bias.py` | types |
-| 4 | `context/sync_checker.py` | `tests/unit/test_sync_checker.py` | types, bias |
-| 5 | `strategy/confirmations.py` | `tests/unit/test_confirmations.py` | types |
-| 6 | `strategy/fta_handler.py` | `tests/unit/test_fta_handler.py` | types |
-| 7 | `strategy/risk.py` | `tests/unit/test_risk.py` | types, sync_checker |
-| 8 | `context/state_machine.py` | `tests/unit/test_state_machine.py` | types, confirmations |
-| 9 | `strategy/entries.py` | `tests/unit/test_entries.py` | types, confirms, fta, risk |
-| 10a | `strategy/exits.py` | `tests/unit/test_exits.py` | types, fta, risk |
-| 10b | `strategy/addons.py` | `tests/unit/test_addons.py` | types, entries, risk |
-| 11 | `notebooks/07_strategy_viewer.ipynb` | `tests/integration/test_strategy_pipeline.py` | all |
+| 1a | `engine/events.py` | `tests/unit/test_events.py` | -- |
+| 1b | `engine/trade_log.py` | `tests/unit/test_trade_log.py` | -- |
+| 2 | `engine/portfolio.py` | `tests/unit/test_portfolio.py` | trade_log, events, strategy.risk |
+| 3 | `engine/metrics.py` | `tests/unit/test_metrics.py` | -- (pure functions) |
+| 4 | `engine/backtester.py` | `tests/integration/test_backtest_e2e.py` | all engine + all Phase 3 |
+| 5 | `engine/__init__.py` | -- | all engine |
 
-**Total: 12 source files (1 edit + 11 new) + 12 test files = ~24 files**
+**Total: 5 source files (1 edit + 4 new) + 5 test files = ~10 files, ~910 LOC source + ~400 LOC tests**
 
 ## Verification
 
 After each step:
 1. `pytest tests/unit/test_{module}.py -v` -- step tests pass
-2. `ruff check {files}` -- clean
-3. `mypy {files} --ignore-missing-imports` -- clean
+2. `ruff check engine/` -- clean
 
 After all steps:
-1. `pytest tests/ -v` -- all tests pass (136 existing + ~80 new)
-2. Full integration pipeline test passes
-3. Notebook runs without errors on real NAS100 data
+1. `pytest tests/ -v` -- all tests pass (404 existing + ~42 new)
+2. Full e2e integration test passes
+3. `run_backtest(config, make_trending_1m(600))` returns valid BacktestResult
