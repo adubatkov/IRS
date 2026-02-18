@@ -141,7 +141,7 @@ def select_target(
         if not swing_points.empty and "level" in swing_points.columns:
             candidates = swing_points[
                 (swing_points["level"] > current_price)
-                & (swing_points["type"] == "high")
+                & (swing_points["direction"] == 1)
             ]
             if not candidates.empty:
                 # Nearest high
@@ -166,7 +166,7 @@ def select_target(
         if not swing_points.empty and "level" in swing_points.columns:
             candidates = swing_points[
                 (swing_points["level"] < current_price)
-                & (swing_points["type"] == "low")
+                & (swing_points["direction"] == -1)
             ]
             if not candidates.empty:
                 # Nearest low

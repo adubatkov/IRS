@@ -205,9 +205,9 @@ class TestSelectTarget:
     def test_long_target_from_swings(self):
         """Long: nearest swing high above price."""
         swings = pd.DataFrame([
-            {"level": 21400.0, "type": "high"},
-            {"level": 21600.0, "type": "high"},
-            {"level": 20800.0, "type": "low"},
+            {"level": 21400.0, "direction": 1},
+            {"level": 21600.0, "direction": 1},
+            {"level": 20800.0, "direction": -1},
         ])
         pois = pd.DataFrame(columns=["direction", "top", "bottom"])
         target = select_target(1, 21200.0, pois, swings, SyncMode.SYNC, StrategyConfig())
@@ -216,9 +216,9 @@ class TestSelectTarget:
     def test_short_target_from_swings(self):
         """Short: nearest swing low below price."""
         swings = pd.DataFrame([
-            {"level": 20900.0, "type": "low"},
-            {"level": 20600.0, "type": "low"},
-            {"level": 21500.0, "type": "high"},
+            {"level": 20900.0, "direction": -1},
+            {"level": 20600.0, "direction": -1},
+            {"level": 21500.0, "direction": 1},
         ])
         pois = pd.DataFrame(columns=["direction", "top", "bottom"])
         target = select_target(-1, 21000.0, pois, swings, SyncMode.SYNC, StrategyConfig())
@@ -226,7 +226,7 @@ class TestSelectTarget:
 
     def test_fallback_to_pois(self):
         """No matching swings -> use opposing POIs."""
-        swings = pd.DataFrame(columns=["level", "type"])
+        swings = pd.DataFrame(columns=["level", "direction"])
         pois = pd.DataFrame([
             {"direction": -1, "top": 21500.0, "bottom": 21400.0},
         ])
@@ -235,7 +235,7 @@ class TestSelectTarget:
 
     def test_fallback_to_percentage(self):
         """No swings and no opposing POIs -> 3% fallback."""
-        swings = pd.DataFrame(columns=["level", "type"])
+        swings = pd.DataFrame(columns=["level", "direction"])
         pois = pd.DataFrame(columns=["direction", "top", "bottom"])
         target = select_target(1, 21000.0, pois, swings, SyncMode.SYNC, StrategyConfig())
         assert abs(target - 21000.0 * 1.03) < 0.01
