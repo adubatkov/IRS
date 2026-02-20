@@ -6,6 +6,9 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+# 252 trading days/year, 390 minutes/day (6.5h US session)
+DEFAULT_BARS_PER_YEAR = 252 * 390
+
 
 @dataclass
 class MetricsResult:
@@ -84,7 +87,7 @@ def compute_drawdown(equity_curve: np.ndarray) -> tuple[np.ndarray, float, int]:
 
 def compute_sharpe(
     equity_curve: np.ndarray,
-    bars_per_year: float = 252 * 390,
+    bars_per_year: float = DEFAULT_BARS_PER_YEAR,
     risk_free_rate: float = 0.0,
 ) -> float:
     """Annualized Sharpe ratio from bar-by-bar equity returns."""
@@ -106,7 +109,7 @@ def compute_sharpe(
 
 def compute_sortino(
     equity_curve: np.ndarray,
-    bars_per_year: float = 252 * 390,
+    bars_per_year: float = DEFAULT_BARS_PER_YEAR,
     risk_free_rate: float = 0.0,
 ) -> float:
     """Annualized Sortino ratio (downside deviation only)."""
@@ -140,7 +143,7 @@ def compute_calmar(cagr: float, max_drawdown_pct: float) -> float:
 def compute_return_metrics(
     equity_curve: np.ndarray,
     initial_capital: float,
-    bars_per_year: float = 252 * 390,
+    bars_per_year: float = DEFAULT_BARS_PER_YEAR,
 ) -> dict:
     """Total return, CAGR from equity curve."""
     valid = equity_curve[~np.isnan(equity_curve)]
@@ -299,7 +302,7 @@ def compute_metrics(
     trade_df: pd.DataFrame,
     equity_curve: np.ndarray,
     initial_capital: float,
-    bars_per_year: float = 252 * 390,
+    bars_per_year: float = DEFAULT_BARS_PER_YEAR,
     timestamps: Optional[pd.DatetimeIndex] = None,
 ) -> MetricsResult:
     """Compute all performance metrics.

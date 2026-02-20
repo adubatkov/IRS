@@ -15,6 +15,9 @@ from typing import Any
 from config import ConfirmationsConfig
 from strategy.types import Confirmation, ConfirmationType
 
+# FVG statuses considered active for confirmation checks
+ACTIVE_FVG_STATUSES = {"FRESH", "TESTED", "PARTIALLY_FILLED"}
+
 
 # ---------------------------------------------------------------------------
 # Individual checker functions
@@ -249,7 +252,7 @@ def check_fvg_wick_reaction(
     if nearby_fvgs is None or len(nearby_fvgs) == 0:
         return None
 
-    _active = {"FRESH", "TESTED", "PARTIALLY_FILLED"}
+    _active = ACTIVE_FVG_STATUSES
 
     for _, fvg in nearby_fvgs.iterrows():
         status = fvg["status"]
@@ -311,7 +314,7 @@ def check_cvb_test(
     if nearby_fvgs is None or len(nearby_fvgs) == 0:
         return None
 
-    _active = {"FRESH", "TESTED", "PARTIALLY_FILLED"}
+    _active = ACTIVE_FVG_STATUSES
 
     for _, fvg in nearby_fvgs.iterrows():
         status = fvg["status"]

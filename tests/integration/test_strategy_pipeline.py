@@ -8,7 +8,6 @@ Verifies the system produces correct signals end-to-end.
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -25,52 +24,7 @@ from strategy.types import (
 from strategy.entries import evaluate_entry
 from strategy.exits import evaluate_exit, check_target_hit, check_stop_loss_hit
 from strategy.fta_handler import detect_fta, classify_fta_distance
-
-
-def make_trending_1m(n_bars: int = 600, base_price: float = 21000.0) -> pd.DataFrame:
-    """Create synthetic 1m data with a clear uptrend and pullback pattern.
-
-    Pattern:
-    - Bars 0-200: Strong uptrend (builds bullish structure)
-    - Bars 200-300: Pullback into demand zone (POI forms)
-    - Bars 300-400: Consolidation + bounce (confirmations accumulate)
-    - Bars 400-600: Continuation up (trade plays out to target)
-    """
-    rng = np.random.default_rng(123)
-    dates = pd.date_range("2024-01-02 09:00", periods=n_bars, freq="1min", tz="UTC")
-
-    prices = np.zeros(n_bars)
-    prices[0] = base_price
-
-    for i in range(1, n_bars):
-        if i < 200:
-            # Uptrend
-            drift = 2.0
-        elif i < 300:
-            # Pullback
-            drift = -1.5
-        elif i < 400:
-            # Consolidation with slight bounce
-            drift = 0.5
-        else:
-            # Continuation up
-            drift = 1.5
-        prices[i] = prices[i - 1] + drift + rng.normal(0, 1.5)
-
-    noise = rng.uniform(0.5, 3.0, n_bars)
-    opens = prices + rng.uniform(-1, 1, n_bars)
-    closes = prices + rng.uniform(-1, 1, n_bars)
-    highs = np.maximum(opens, closes) + noise
-    lows = np.minimum(opens, closes) - noise
-
-    return pd.DataFrame({
-        "time": dates,
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "tick_volume": rng.integers(100, 5000, n_bars),
-    })
+from tests.conftest import make_trending_1m
 
 
 @pytest.fixture
