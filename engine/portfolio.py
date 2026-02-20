@@ -320,3 +320,7 @@ class Portfolio:
     def has_position_for_poi(self, poi_id: str) -> bool:
         """Check if there are any open positions for this POI."""
         return poi_id in self._positions and len(self._positions[poi_id]) > 0
+
+    def get_open_poi_ids(self) -> list[str]:
+        """Return list of poi_ids with open positions."""
+        return list(self._positions.keys())

@@ -481,8 +481,8 @@ def collect_confirmations(
     if sb is not None:
         _add(ConfirmationType.STRUCTURE_BREAK, sb)
 
-    # 6. FVG Wick Reaction -- ONLY valid after 5+ confirmations
-    if len(confirms) >= 5:
+    # 6. FVG Wick Reaction -- ONLY valid after 5+ pre-existing confirmations
+    if len(existing_confirms) >= 5:
         wick = check_fvg_wick_reaction(c_open, c_high, c_low, c_close, nearby_fvgs, direction)
         if wick is not None:
             _add(ConfirmationType.FVG_WICK_REACTION, wick)

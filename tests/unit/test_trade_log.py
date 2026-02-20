@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import pytest
 import pandas as pd
 
-from engine.trade_log import TradeLog, TradeRecord, classify_outcome, compute_r_multiple
+from engine.trade_log import TradeLog, classify_outcome, compute_r_multiple
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -249,7 +249,7 @@ class TestToDataframe:
     def test_to_dataframe(self):
         """Open + close trades, verify DataFrame columns and row count."""
         log, tid0 = _make_log_with_open_trade(direction=1)
-        tid1 = log.open_trade(
+        _tid1 = log.open_trade(
             poi_id="OB_15m_002",
             direction=-1,
             entry_time=ENTRY_TIME,

@@ -217,7 +217,7 @@ def evaluate_exit(
     c_low = candle["low"]
     c_close = candle["close"]
 
-    # 1. Stop loss
+    # 1. Stop loss (checked before target: pessimistic assumption for same-bar hits)
     if check_stop_loss_hit(c_high, c_low, poi_state.stop_loss, direction):
         return Signal(
             type=SignalType.EXIT,

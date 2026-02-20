@@ -11,7 +11,7 @@ import pandas as pd
 
 from config import BacktestConfig, RiskConfig
 from strategy.types import Signal, SignalType, SyncMode
-from engine.portfolio import Portfolio, apply_slippage, PositionInfo
+from engine.portfolio import Portfolio, apply_slippage
 from engine.trade_log import TradeLog
 from engine.events import EventLog
 

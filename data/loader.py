@@ -179,7 +179,7 @@ def file_hash(path: str | Path) -> str:
     path = Path(path)
     stat = path.stat()
     key = f"{path.resolve()}:{stat.st_mtime}:{stat.st_size}"
-    return hashlib.md5(key.encode()).hexdigest()
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _clean_dataframe(df: pd.DataFrame, source: str = "") -> pd.DataFrame:

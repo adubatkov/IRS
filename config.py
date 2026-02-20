@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 
 import yaml
 
@@ -128,14 +128,20 @@ def _build_nested(cls: type, raw: dict[str, Any]) -> Any:
     """Recursively build a dataclass from a dict."""
     if not isinstance(raw, dict):
         return raw
-    hints = getattr(cls, "__dataclass_fields__", {})
+    dc_fields = getattr(cls, "__dataclass_fields__", {})
+    # Use typing.get_type_hints to safely resolve string annotations
+    try:
+        resolved_hints = get_type_hints(cls)
+    except Exception:
+        resolved_hints = {}
     kwargs: dict[str, Any] = {}
     for key, val in raw.items():
-        if key in hints:
-            field_type = hints[key].type
-            # Resolve string annotations
+        if key in dc_fields:
+            field_type = resolved_hints.get(key, dc_fields[key].type)
+            # Skip unresolved string annotations
             if isinstance(field_type, str):
-                field_type = eval(field_type)  # noqa: S307
+                kwargs[key] = val
+                continue
             origin = getattr(field_type, "__origin__", None)
             if hasattr(field_type, "__dataclass_fields__") and isinstance(val, dict):
                 kwargs[key] = _build_nested(field_type, val)

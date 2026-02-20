@@ -320,7 +320,7 @@ def compute_metrics(
     # Risk-adjusted
     sharpe = compute_sharpe(equity_curve, bars_per_year)
     sortino = compute_sortino(equity_curve, bars_per_year)
-    calmar = compute_calmar(ret["cagr_pct"], max_dd * 100 if max_dd < 1 else max_dd)
+    calmar = compute_calmar(ret["cagr_pct"], max_dd * 100)
 
     # Trade stats
     trade_stats = compute_trade_stats(trade_df)
@@ -341,7 +341,7 @@ def compute_metrics(
     return MetricsResult(
         total_return_pct=ret["total_return_pct"],
         cagr_pct=ret["cagr_pct"],
-        max_drawdown_pct=max_dd * 100 if max_dd < 1 else max_dd,
+        max_drawdown_pct=max_dd * 100,
         max_drawdown_duration_bars=max_dd_dur,
         sharpe_ratio=sharpe,
         sortino_ratio=sortino,

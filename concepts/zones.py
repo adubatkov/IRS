@@ -17,7 +17,7 @@ def premium_discount_zones(
         Dict with zone boundaries and key levels.
     """
     if swing_high <= swing_low:
-        return {"error": "swing_high must be > swing_low"}
+        raise ValueError("swing_high must be > swing_low")
 
     range_size = swing_high - swing_low
     equilibrium = (swing_high + swing_low) / 2

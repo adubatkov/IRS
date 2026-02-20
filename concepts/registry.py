@@ -205,9 +205,6 @@ def _normalize_all(
             if status == "SWEPT":
                 continue
             level = float(row["level"])
-            count = int(row.get("count", 2))
-            if count < 3:
-                continue  # Only score clusters with 3+ touches
             # Create a thin zone around the level
             zone_half = level * 0.0005  # ±0.05% band
             zones.append({

@@ -59,20 +59,6 @@ def detect_structure(
     last_swing_high = None  # (orig_index, level)
     last_swing_low = None   # (orig_index, level)
 
-    for _, pt in points.iterrows():
-        idx = pt["orig_index"]
-        direction = pt["direction"]
-        level = pt["level"]
-
-        if direction == 1:  # Swing high
-            last_swing_high = (idx, level)
-        else:  # Swing low
-            last_swing_low = (idx, level)
-
-    # Now iterate through price bars to detect breaks
-    last_swing_high = None
-    last_swing_low = None
-
     # Collect all swing points into a lookup
     swing_by_index = {}
     for _, pt in points.iterrows():

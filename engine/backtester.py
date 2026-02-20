@@ -93,7 +93,7 @@ class Backtester:
         if n_bars > 0:
             last_candle = df.iloc[-1]
             last_ts = last_candle["time"]
-            for poi_id in list(self._portfolio._positions.keys()):
+            for poi_id in self._portfolio.get_open_poi_ids():
                 self._portfolio.close_position(
                     poi_id=poi_id,
                     exit_signal_price=last_candle["close"],
@@ -302,9 +302,11 @@ class Backtester:
                     confirmation_count=len(state.confirmations),
                 )
                 if trade_id is not None:
+                    # Use actual fill price (post-slippage) from trade log
+                    fill_price = self._trade_log.get_trade(trade_id).entry_price
                     self._sm.set_positioned(
                         state.poi_id,
-                        entry_signal.price,
+                        fill_price,
                         entry_signal.stop_loss,
                         entry_signal.target,
                     )
@@ -319,12 +321,22 @@ class Backtester:
         td_1m = self._manager.get_timeframe_data("1m")
 
         for state in self._sm.get_positioned_states():
+            # Compute FTA for this position's target
+            fta = None
+            if state.target is not None:
+                active_pois = self._manager.get_all_active_pois(timestamp)
+                if len(active_pois) > 0:
+                    fta = detect_fta(
+                        candle["close"], state.target,
+                        state.poi_data["direction"], active_pois
+                    )
+
             exit_signal = evaluate_exit(
                 poi_state=state,
                 candle=candle,
                 bar_index=bar_index,
                 timestamp=timestamp,
-                fta=None,
+                fta=fta,
                 structure_events=td_1m.structure,
                 config=self._config.strategy,
             )
